@@ -13,7 +13,7 @@ export class UserService {
   ) {}
 
   async findById(id: string) {
-    return this.redis.cache(
+    return this.redis.withCache(
       `user:${id}`,
       () => this.prisma.user.findUnique({
         where: { id },
@@ -85,7 +85,7 @@ export class UserService {
   }
 
   async getUserDashboard(userId: string) {
-    return this.redis.cache(
+    return this.redis.withCache(
       `user:dashboard:${userId}`,
       async () => {
         const [user, subscriptions, recentActivity] = await Promise.all([

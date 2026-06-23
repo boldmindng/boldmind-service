@@ -4,8 +4,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ContentService } from './amebogist.service';
 import { ContentController } from './amebogist.controller';
 import { RssService } from './rss.service';
-import { TrendService } from './src/services/trend.service';
-import { ContentAiService } from './src/services/ai.service';
+import { TrendService } from '../ai/services/trend.service';
 
 
 // Schemas
@@ -22,14 +21,12 @@ import { Reaction, ReactionSchema } from './schemas/reaction.schema';
       { name: 'CreatorStats', schema: CreatorStatsSchema },
       { name: 'Reaction', schema: ReactionSchema },
     ]),
-    BullModule.registerQueue({ name: 'content' }),
   ],
   controllers: [ContentController],
   providers: [
     ContentService, 
     RssService,
     TrendService,
-    ContentAiService
   ],
   exports: [ContentService],
 })

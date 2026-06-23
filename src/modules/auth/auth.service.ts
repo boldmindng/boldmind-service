@@ -30,7 +30,7 @@ import {
   SYSTEM_ROLE_PERMISSIONS,
   ECOSYSTEM_ROLE_PERMISSIONS,
   getRolePermissions,
-} from '@boldmind-tech/utils';
+} from '@boldmindng/utils';
 import { Resend } from 'resend';
 
 const SALT_ROUNDS = 12;
@@ -459,6 +459,14 @@ export class AuthService {
     // Expose `sub` so @CurrentUser() behaves the same as the raw JwtPayload
     return { ...user, sub: user.id };
   }
+
+     async verifyAccessToken(token: string): Promise<JwtPayload | null> {
+        try {
+          return await this.jwtService.verifyAsync<JwtPayload>(token);
+        } catch {
+          return null;
+        }
+      }
  
   // ──────────────────────────────────────────
   // PRIVATE HELPERS

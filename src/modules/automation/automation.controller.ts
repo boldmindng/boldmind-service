@@ -25,11 +25,11 @@ export class AutomationController {
     });
   }
 
-  @Post('social/calendar')
-  @ApiOperation({ summary: 'Generate an AI content calendar' })
-  generateCalendar(@CurrentUser('id') userId: string, @Body() dto: any) {
-    return this.automationService.generateContentCalendar(userId, dto);
-  }
+  // @Post('social/calendar')
+  // @ApiOperation({ summary: 'Generate an AI content calendar' })
+  // generateCalendar(@CurrentUser('id') userId: string, @Body() dto: any) {
+  //   return this.automationService.(userId, dto);
+  // }
 
   @Post('social/captions')
   @ApiOperation({ summary: 'Bulk generate captions for posts' })

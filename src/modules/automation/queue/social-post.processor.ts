@@ -1,27 +1,46 @@
-// ══════════════════════════════════════════════════════════════════
-// FILE: src/modules/automation/queue/social-post.processor.ts
-// ══════════════════════════════════════════════════════════════════
-import { Process, Processor } from '@nestjs/bull';
+// src/modules/automation/queue/social-post.processor.ts
+//
+// Migrated from @nestjs/bull → @nestjs/bullmq. Queue renamed from the
+// hardcoded 'social-posts' to QUEUES.SOCIAL_PUBLISHING ('social-publishing'),
+// matching the canonical queue map. Producers (e.g. automation.service.ts,
+// planai social-media-manager.service.ts) must add jobs with
+// JOBS.SOCIAL.POST instead of the bare string 'post'.
+
+import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import { Job } from 'bull';
+import { Job } from 'bullmq';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
+import { QUEUES, JOBS } from '../../../common/constants/queues';
 
-@Processor('social-posts')
-export class SocialPostProcessor {
+interface SocialPostJobData {
+  userId: string;
+  platforms: string[];
+  content: string;
+  mediaUrls?: string[];
+  caption?: string;
+  hashtags?: string[];
+}
+
+@Processor(QUEUES.SOCIAL_PUBLISHING)
+export class SocialPostProcessor extends WorkerHost {
   private readonly logger = new Logger(SocialPostProcessor.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) {
+    super();
+  }
 
-  @Process('post')
-  async handleSocialPost(job: Job<{
-    userId: string;
-    platforms: string[];
-    content: string;
-    mediaUrls?: string[];
-    caption?: string;
-    hashtags?: string[];
-  }>) {
+  async process(job: Job<SocialPostJobData>): Promise<any> {
+    switch (job.name) {
+      case JOBS.SOCIAL.POST:
+        return this.handleSocialPost(job);
+      default:
+        this.logger.warn(`Unhandled job "${job.name}" on queue "${QUEUES.SOCIAL_PUBLISHING}"`);
+        return null;
+    }
+  }
+
+  private async handleSocialPost(job: Job<SocialPostJobData>) {
     const { platforms, content, mediaUrls, caption, hashtags } = job.data;
     this.logger.log(`Processing social post for platforms: ${platforms.join(', ')}`);
 
@@ -31,7 +50,7 @@ export class SocialPostProcessor {
       try {
         results[platform] = await this.postToPlatform(platform, content, mediaUrls, caption, hashtags);
         this.logger.log(`Posted to ${platform} ✓`);
-      } catch (err) {
+      } catch (err: any) {
         this.logger.error(`Failed to post to ${platform}:`, err.message);
         results[platform] = { error: err.message };
       }

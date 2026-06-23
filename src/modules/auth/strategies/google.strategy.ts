@@ -5,7 +5,7 @@ import { Strategy, VerifyCallback } from 'passport-google-oauth20';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { AuthService } from '../auth.service';
-import { AuthProvider } from '@boldmind-tech/utils';
+import { AuthProvider } from '@boldmindng/utils';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {

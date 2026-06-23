@@ -12,18 +12,14 @@ import { TrendService } from './services/trend.service';
 import { VideoFactoryService } from './services/video-factory.service';
 import { SocialFactoryProcessor } from './processors/social-factory.processor';
 import { RedisService } from '../../database/redis.service';
+import { FalProvider } from './providers/fal.provider';
 
 // @Global() — makes AiService available everywhere without importing AiModule
 // Just import AiModule once in AppModule, then inject AiService in any module
 @Global()
 @Module({
   imports: [
-    ConfigModule,
-    BullModule.registerQueue(
-      { name: 'social-factory' },
-      { name: 'video-render' },
-      { name: 'content-seo' },
-    ),
+    ConfigModule
   ],
   providers: [
     // Providers (AI backend adapters)
@@ -32,7 +28,7 @@ import { RedisService } from '../../database/redis.service';
     OpenAIProvider,
     CloudflareAiProvider,
     OllamaProvider,
-
+    FalProvider,
     // Core AI gateway
     AiService,
 
@@ -52,6 +48,7 @@ import { RedisService } from '../../database/redis.service';
     VideoFactoryService,
     GroqProvider,
     GeminiProvider,
+    FalProvider
   ],
 })
 export class AiModule { }

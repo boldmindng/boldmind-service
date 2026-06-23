@@ -58,7 +58,7 @@ export class AdminService {
   ) { }
 
   async getDashboardStats(): Promise<DashboardStats> {
-    return this.redis.cache(
+    return this.redis.withCache(
       'admin:dashboard:stats',
       async () => this.buildDashboardStats(),
       120, // 2 min cache

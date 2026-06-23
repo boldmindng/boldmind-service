@@ -6,6 +6,27 @@ datasource db {
   provider = "postgresql"
 }
 
+enum CRMStage {
+  NEW
+  CONTACTED
+  PROPOSAL
+  WON
+  LOST
+}
+
+enum ScheduledPostStatus {
+  QUEUED
+  PROCESSING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
 
 enum SystemRole {
   super_admin
@@ -159,6 +180,9 @@ enum PlanAIJobType {
   ANALYTICS_REPORT
   EMAIL_SCRAPE
   STOREFRONT_SETUP
+  HR_DOCS
+  LEGAL
+  OPERATIONS_DOC
 }
 
 enum ConversationStatus {
@@ -250,39 +274,39 @@ enum WorkspaceRole {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model User {
-  id               String          @id @default(cuid())
-  email            String          @unique
-  phone            String?         @unique
-  passwordHash     String?         // nullable — OAuth users may have no password
-  name             String
+  id           String  @id @default(cuid())
+  email        String  @unique
+  phone        String? @unique
+  passwordHash String? // nullable — OAuth users may have no password
+  name         String
 
-  role             UserRole        @default(guest)
-  ecosystemRole    EcosystemRole?  // Secondary persona layer
-  digitalMaturity  DigitalMaturity @default(low)
+  role            UserRole        @default(guest)
+  ecosystemRole   EcosystemRole? // Secondary persona layer
+  digitalMaturity DigitalMaturity @default(low)
 
-  permissions      String[]        @default([])
+  permissions String[] @default([])
 
-  isVerified       Boolean         @default(false)
-  isActive         Boolean         @default(true)
-  isBanned         Boolean         @default(false)
+  isVerified       Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  isBanned         Boolean   @default(false)
   banReason        String?
   emailVerifiedAt  DateTime?
   phoneVerifiedAt  DateTime?
-  twoFactorEnabled Boolean         @default(false)
+  twoFactorEnabled Boolean   @default(false)
   twoFactorSecret  String?
 
   // OAuth
-  provider         AuthProvider    @default(email)
-  providerId       String?         // Google sub / GitHub id / etc.
+  provider   AuthProvider @default(email)
+  providerId String? // Google sub / GitHub id / etc.
 
   // Session metadata
-  lastLoginAt      DateTime?
-  lastLoginIp      String?
+  lastLoginAt DateTime?
+  lastLoginIp String?
 
-  avatar           String?
+  avatar String?
 
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   profile            UserProfile?
@@ -300,47 +324,54 @@ model User {
   analyticsEvents    AnalyticsEvent[]
 
   // ViralKit
-  generatedContents  GeneratedContent[]
-  usageRecords       UsageRecord[]
+  generatedContents GeneratedContent[]
+  usageRecords      UsageRecord[]
 
   // EduCenter
-  cbtSessions        CBTSession[]
-  studyProgress      StudentProgress[]
-  studyStreak        StudyStreak?
-  courseEnrollments  CourseEnrollment[]
+  cbtSessions       CBTSession[]
+  studyProgress     StudentProgress[]
+  studyStreak       StudyStreak?
+  courseEnrollments CourseEnrollment[]
 
   // PlanAI
-  planAIJobs         PlanAIJob[]
-  planAITemplates    PlanAITemplate[]
+  planAIJobs      PlanAIJob[]
+  planAITemplates PlanAITemplate[]
 
   // Receptionist
   receptionistClient ReceptionistClient?
 
   // Fitness
-  fitnessProfile     FitnessProfile?
-  fitnessStreak      FitnessStreak?
-  workoutPlans       WorkoutPlan[]
-  workoutLogs        WorkoutLog[]
-  mealLogs           MealLog[]
-  bodyMetricLogs     BodyMetricLog[]
+  fitnessProfile FitnessProfile?
+  fitnessStreak  FitnessStreak?
+  workoutPlans   WorkoutPlan[]
+  workoutLogs    WorkoutLog[]
+  mealLogs       MealLog[]
+  bodyMetricLogs BodyMetricLog[]
 
   // OS
-  osProfile          OSProfile?
-  memberships        WorkspaceMember[]
-  createdTasks       Task[]            @relation("TaskCreator")
-  assignedTasks      Task[]            @relation("TaskAssignee")
-  createdProjects    Project[]
-  pomodoroSessions   PomodoroSession[]
-  knowledgeNodes     KnowledgeNode[]
+  osProfile        OSProfile?
+  memberships      WorkspaceMember[]
+  createdTasks     Task[]            @relation("TaskCreator")
+  assignedTasks    Task[]            @relation("TaskAssignee")
+  createdProjects  Project[]
+  pomodoroSessions PomodoroSession[]
+  knowledgeNodes   KnowledgeNode[]
 
   // Storefronts
-  stores             Store[]
-  orders             Order[]      @relation("BuyerOrders")
+  stores Store[]
+  orders Order[] @relation("BuyerOrders")
 
   // Admin
-  adminLogs          AdminLog[]
-  waitlistEntries    WaitlistEntry[]
-
+  adminLogs       AdminLog[]
+  waitlistEntries WaitlistEntry[]
+  crmcontacts     CRMContact[]
+wallet              Wallet?
+apiKeys             ApiKey[]
+school              School?
+referralsMade       Referral[]          @relation("Referrer")
+referredBy          Referral?           @relation("Referred")
+affiliateEarnings   AffiliateEarning[]
+webhookSubscriptions WebhookSubscription[]
   @@index([email])
   @@index([phone])
   @@index([role])
@@ -350,18 +381,365 @@ model User {
   @@map("users")
 }
 
-model RefreshToken {
-  id          String   @id @default(cuid())
-  userId      String
-  token       String   @unique
-  family      String   // Token family for rotation detection
-  expiresAt   DateTime
-  isRevoked   Boolean  @default(false)
-  deviceInfo  String?
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+// ─── WALLET ──────────────────────────────────────────────────────────────────
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+model Wallet {
+  id              String        @id @default(cuid())
+  userId          String        @unique
+  balanceKobo     Int           @default(0)
+  tier            WalletTier    @default(TIER1)
+  dailyDebitKobo  Int           @default(0)
+  lastDebitReset  DateTime      @default(now())
+  isLocked        Boolean       @default(false)
+  lockReason      String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger          WalletLedger[]
+  @@map("wallets")
+}
+
+model WalletLedger {
+  id           String          @id @default(cuid())
+  walletId     String
+  type         WalletEntryType
+  amountKobo   Int
+  balanceAfter Int
+  description  String
+  reference    String?
+  source       WalletSource
+  metadata     Json?
+  createdAt    DateTime        @default(now())
+  wallet       Wallet          @relation(fields: [walletId], references: [id])
+  @@index([walletId])
+  @@index([walletId, createdAt])
+  @@index([reference])
+  @@map("wallet_ledger")
+}
+
+enum WalletTier {
+  TIER1
+  TIER2
+}
+
+enum WalletEntryType {
+  CREDIT
+  DEBIT
+}
+
+enum WalletSource {
+  REFERRAL_COMMISSION
+  AFFILIATE_EARNING
+  SUBSCRIPTION_REFUND
+  ADMIN_CREDIT
+  PROMOTIONAL_BONUS
+  MARKETPLACE_PAYOUT
+  SUBSCRIPTION_PAYMENT
+  MARKETPLACE_PURCHASE
+  WITHDRAWAL
+}
+
+// ─── REFERRALS ────────────────────────────────────────────────────────────────
+
+model Referral {
+  id             String   @id @default(cuid())
+  referrerId     String
+  referredId     String   @unique
+  productSlug    String
+  status         String   @default("pending")  // pending | converted | paid
+  commissionKobo Int      @default(0)
+  createdAt      DateTime @default(now())
+  referrer       User     @relation("Referrer", fields: [referrerId], references: [id])
+  referred       User     @relation("Referred", fields: [referredId], references: [id])
+  @@index([referrerId])
+  @@map("referrals")
+}
+
+model AffiliateEarning {
+  id         String    @id @default(cuid())
+  userId     String
+  source     String
+  amountKobo Int
+  reference  String?
+  paidAt     DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id])
+  @@index([userId])
+  @@map("affiliate_earnings")
+}
+
+// ─── API KEYS ─────────────────────────────────────────────────────────────────
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  keyHash    String    @unique
+  prefix     String
+  scopes     String[]
+  tier       ApiTier   @default(STARTER)
+  isActive   Boolean   @default(true)
+  rateLimit  Int       @default(1000)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation(fields: [userId], references: [id])
+  webhooks   WebhookSubscription[]
+  @@index([userId])
+  @@index([keyHash])
+  @@map("api_keys")
+}
+
+enum ApiTier {
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+model WebhookSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  apiKeyId  String
+  url       String
+  events    String[]
+  secret    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+  apiKey    ApiKey   @relation(fields: [apiKeyId], references: [id])
+  @@index([userId])
+  @@map("webhook_subscriptions")
+}
+
+// ─── SCHOOL ───────────────────────────────────────────────────────────────────
+
+model School {
+  id              String    @id @default(cuid())
+  name            String
+  state           String
+  address         String?
+  contactEmail    String
+  adminUserId     String    @unique
+  plan            String    @default("basic")
+  studentSlots    Int       @default(50)
+  usedSlots       Int       @default(0)
+  payingUntil     DateTime?
+  paystackSubCode String?   @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  admin           User      @relation(fields: [adminUserId], references: [id])
+  @@map("schools")
+}
+
+// ─── VIBE CODERS CLASSROOM ───────────────────────────────────────────────────
+
+model VibeCoderProjectSubmission {
+  id          String              @id @default(cuid())
+  applicantId String
+  moduleId    String
+  githubUrl   String?
+  loomUrl     String?
+  brief       String              @db.Text
+  status      String              @default("submitted")
+  mentorNote  String?             @db.Text
+  reviewedBy  String?
+  score       Int?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  applicant   VibeCoderApplicant  @relation(fields: [applicantId], references: [id])
+  @@index([applicantId])
+  @@map("vc_project_submissions")
+}
+
+model VibeCoderAttendance {
+  id          String              @id @default(cuid())
+  applicantId String
+  sessionDate DateTime
+  sessionType String
+  moduleId    String
+  attended    Boolean             @default(false)
+  joinedAt    DateTime?
+  duration    Int?
+  createdAt   DateTime            @default(now())
+  applicant   VibeCoderApplicant  @relation(fields: [applicantId], references: [id])
+  @@unique([applicantId, sessionDate, moduleId])
+  @@map("vc_attendance")
+}
+
+
+// ── CRM ──────────────────────────────────────────────────────────────────────
+
+model CRMContact {
+  id           String    @id @default(cuid())
+  userId       String
+  name         String
+  email        String?
+  phone        String?
+  whatsapp     String?
+  company      String?
+  source       String?
+  tags         String[]
+  stage        CRMStage  @default(NEW)
+  dealValueNGN Int?
+  lastContact  DateTime?
+  notes        String?   @db.Text
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interactions CRMInteraction[]
+
+  @@index([userId])
+  @@index([userId, stage])
+  @@index([email])
+  @@index([phone])
+  @@map("crm_contacts")
+}
+
+model CRMInteraction {
+  id        String   @id @default(cuid())
+  contactId String
+  userId    String
+  type      String // call | email | whatsapp | meeting | note
+  content   String   @db.Text
+  direction String? // inbound | outbound
+  createdAt DateTime @default(now())
+
+  contact CRMContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([userId, createdAt])
+  @@map("crm_interactions")
+}
+
+// ── HR & PAYROLL ─────────────────────────────────────────────────────────────
+
+model HREmployee {
+  id          String         @id @default(cuid())
+  businessId  String // owner's userId
+  fullName    String
+  email       String
+  phone       String?
+  department  String?
+  role        String
+  salaryNGN   Int // monthly gross in kobo
+  startDate   DateTime
+  bankName    String?
+  bankAccount String?
+  pensionPin  String?
+  taxId       String?
+  status      EmployeeStatus @default(ACTIVE)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  payslips      Payslip[]
+  leaveRequests LeaveRequest[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@map("hr_employees")
+}
+
+model Payslip {
+  id         String    @id @default(cuid())
+  employeeId String
+  month      Int
+  year       Int
+  grossNGN   Int
+  payeNGN    Int
+  pensionNGN Int
+  nhfNGN     Int
+  netNGN     Int
+  pdfUrl     String?
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  employee HREmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, month, year])
+  @@index([employeeId])
+  @@map("payslips")
+}
+
+model LeaveRequest {
+  id         String   @id @default(cuid())
+  employeeId String
+  type       String // annual | sick | maternity | paternity | unpaid
+  startDate  DateTime
+  endDate    DateTime
+  reason     String?
+  status     String   @default("pending") // pending | approved | rejected
+  createdAt  DateTime @default(now())
+
+  employee HREmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("leave_requests")
+}
+
+// ── SOCIAL MEDIA ─────────────────────────────────────────────────────────────
+
+model SocialMediaAccount {
+  id           String    @id @default(cuid())
+  userId       String
+  platform     String // instagram | facebook | tiktok | twitter | linkedin | youtube | threads | bluesky
+  accountId    String
+  accountName  String
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  tokenExpiry  DateTime?
+  pageId       String?
+  connected    Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  scheduledPosts ScheduledPost[]
+
+  @@unique([userId, platform, accountId])
+  @@index([userId])
+  @@map("social_media_accounts")
+}
+
+model ScheduledPost {
+  id           String              @id @default(cuid())
+  userId       String
+  accountId    String
+  platforms    String[]
+  content      String              @db.Text
+  mediaUrls    String[]
+  scheduledFor DateTime
+  timezone     String              @default("Africa/Lagos")
+  status       ScheduledPostStatus @default(QUEUED)
+  publishedAt  DateTime?
+  errorMsg     String?
+  bullJobId    String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  account SocialMediaAccount @relation(fields: [accountId], references: [id])
+
+  @@index([userId])
+  @@index([scheduledFor])
+  @@index([status])
+  @@map("scheduled_posts")
+}
+
+model RefreshToken {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  family     String // Token family for rotation detection
+  expiresAt  DateTime
+  isRevoked  Boolean  @default(false)
+  deviceInfo String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -371,18 +749,18 @@ model RefreshToken {
 }
 
 model OTPVerification {
-  id          String   @id @default(cuid())
-  userId      String?
-  email       String?
-  phone       String?
-  code        String   // bcrypt hashed
-  purpose     String   // "email_verify" | "phone_verify" | "password_reset" | "2fa"
-  expiresAt   DateTime
-  isUsed      Boolean  @default(false)
-  attempts    Int      @default(0)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String?
+  email     String?
+  phone     String?
+  code      String // bcrypt hashed
+  purpose   String // "email_verify" | "phone_verify" | "password_reset" | "2fa"
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
 
-  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([email, purpose])
   @@index([phone, purpose])
@@ -396,33 +774,33 @@ model OTPVerification {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model UserProfile {
-  id              String          @id @default(cuid())
-  userId          String          @unique
-  displayName     String?
-  bio             String?         @db.Text
-  avatarUrl       String?
-  coverImageUrl   String?
-  website         String?
-  location        String?
-  state           String?         // Nigerian state
-  timezone        String          @default("Africa/Lagos")
-  language        String          @default("en")
-  prefersPidgin   Boolean         @default(false)
-  dyslexiaMode    Boolean         @default(false)
-  activeProducts  String[]        @default([])
-  onboardingDone  Boolean         @default(false)
-  referralCode    String          @unique @default(cuid())
-  referredBy      String?
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  displayName    String?
+  bio            String?  @db.Text
+  avatarUrl      String?
+  coverImageUrl  String?
+  website        String?
+  location       String?
+  state          String? // Nigerian state
+  timezone       String   @default("Africa/Lagos")
+  language       String   @default("en")
+  prefersPidgin  Boolean  @default(false)
+  dyslexiaMode   Boolean  @default(false)
+  activeProducts String[] @default([])
+  onboardingDone Boolean  @default(false)
+  referralCode   String   @unique @default(cuid())
+  referredBy     String?
 
   // EduCenter specific
-  examTarget      ExamType?       // What exam the student is preparing for
-  targetYear      Int?            // Year of exam (e.g., 2026)
-  targetScore     Int?            // e.g., 280 for JAMB
+  examTarget  ExamType? // What exam the student is preparing for
+  targetYear  Int? // Year of exam (e.g., 2026)
+  targetScore Int? // e.g., 280 for JAMB
 
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([referralCode])
   @@map("user_profiles")
@@ -439,7 +817,7 @@ model ActivityLog {
   userAgent   String?
   createdAt   DateTime @default(now())
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([action])
@@ -472,8 +850,8 @@ model Subscription {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  payments           Payment[]
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments Payment[]
 
   @@unique([userId, productSlug])
   @@index([userId])
@@ -484,28 +862,28 @@ model Subscription {
 }
 
 model Payment {
-  id              String          @id @default(cuid())
-  userId          String
-  subscriptionId  String?
-  provider        PaymentProvider @default(PAYSTACK)
-  paystackRef     String          @unique
-  paystackTrxRef  String?         @unique
-  paystackId      String?         @unique
-  amountNGN       Int             // Kobo
-  currency        String          @default("NGN")
-  status          PaymentStatus   @default(PENDING)
-  productSlug     String
-  description     String?
-  channel         String?
-  metadata        Json?
-  webhookPayload  Json?
-  paidAt          DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id             String          @id @default(cuid())
+  userId         String
+  subscriptionId String?
+  provider       PaymentProvider @default(PAYSTACK)
+  paystackRef    String          @unique
+  paystackTrxRef String?         @unique
+  paystackId     String?         @unique
+  amountNGN      Int // Kobo
+  currency       String          @default("NGN")
+  status         PaymentStatus   @default(PENDING)
+  productSlug    String
+  description    String?
+  channel        String?
+  metadata       Json?
+  webhookPayload Json?
+  paidAt         DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
-  user            User            @relation(fields: [userId], references: [id])
-  subscription    Subscription?   @relation(fields: [subscriptionId], references: [id])
-  invoice         Invoice?
+  user         User          @relation(fields: [userId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  invoice      Invoice?
 
   @@index([userId])
   @@index([paystackRef])
@@ -516,23 +894,23 @@ model Payment {
 }
 
 model Invoice {
-  id            String   @id @default(cuid())
-  userId        String
-  paymentId     String   @unique
-  invoiceNumber String   @unique
-  amount        Int
-  currency      String   @default("NGN")
-  vatAmount     Int      @default(0)
-  totalAmount   Int
-  dueDate       DateTime?
-  paidAt        DateTime?
-  pdfUrl        String?
-  lineItems     Json
+  id             String    @id @default(cuid())
+  userId         String
+  paymentId      String    @unique
+  invoiceNumber  String    @unique
+  amount         Int
+  currency       String    @default("NGN")
+  vatAmount      Int       @default(0)
+  totalAmount    Int
+  dueDate        DateTime?
+  paidAt         DateTime?
+  pdfUrl         String?
+  lineItems      Json
   billingAddress Json?
-  createdAt     DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
-  user          User     @relation(fields: [userId], references: [id])
-  payment       Payment  @relation(fields: [paymentId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  payment Payment @relation(fields: [paymentId], references: [id])
 
   @@index([userId])
   @@index([invoiceNumber])
@@ -544,21 +922,21 @@ model Invoice {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model NotificationLog {
-  id          String             @id @default(cuid())
-  userId      String
-  type        NotificationType
-  status      NotificationStatus @default(PENDING)
-  subject     String?
-  body        String             @db.Text
-  recipient   String
-  metadata    Json?
-  sentAt      DateTime?
-  readAt      DateTime?
-  failReason  String?
-  retryCount  Int                @default(0)
-  createdAt   DateTime           @default(now())
+  id         String             @id @default(cuid())
+  userId     String
+  type       NotificationType
+  status     NotificationStatus @default(PENDING)
+  subject    String?
+  body       String             @db.Text
+  recipient  String
+  metadata   Json?
+  sentAt     DateTime?
+  readAt     DateTime?
+  failReason String?
+  retryCount Int                @default(0)
+  createdAt  DateTime           @default(now())
 
-  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([type, status])
@@ -578,7 +956,7 @@ model PushSubscription {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("push_subscriptions")
@@ -599,7 +977,7 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime         @default(now())
 
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
   @@index([createdAt])
@@ -630,7 +1008,7 @@ model MediaFile {
   metadata    Json?
   createdAt   DateTime      @default(now())
 
-  user        User          @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([productSlug])
@@ -640,45 +1018,44 @@ model MediaFile {
 
 /// Media upload tracking (R2 storage)
 model Media {
-  id            String   @id @default(cuid())
-  key           String   @unique
-  url           String
-  folder        String
-  originalName  String
-  mimeType      String
-  size          Int
-  uploadedById  String
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  key          String   @unique
+  url          String
+  folder       String
+  originalName String
+  mimeType     String
+  size         Int
+  uploadedById String
+  createdAt    DateTime @default(now())
 
-  uploadedBy    User     @relation(fields: [uploadedById], references: [id])
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
 
   @@index([uploadedById])
   @@index([folder])
   @@map("media_uploads")
 }
 
-
 model CBTSession {
-  id              String           @id @default(cuid())
-  userId          String
-  examType        ExamType
-  subject         String           // "Mathematics", "English Language", etc.
-  year            Int?             // Optional: specific year filter for questions
-  totalQuestions  Int
-  timeLimitSecs   Int              // e.g. 1800 for 30 min
-  status          CBTSessionStatus @default(IN_PROGRESS)
+  id             String           @id @default(cuid())
+  userId         String
+  examType       ExamType
+  subject        String // "Mathematics", "English Language", etc.
+  year           Int? // Optional: specific year filter for questions
+  totalQuestions Int
+  timeLimitSecs  Int // e.g. 1800 for 30 min
+  status         CBTSessionStatus @default(IN_PROGRESS)
 
-  questionIds     String[]         // ALOC API question IDs
+  questionIds String[] // ALOC API question IDs
 
   // Results — computed at session completion
-  score           Int?             // Number correct
-  percentage      Float?           // score / totalQuestions * 100
-  timeTakenSecs   Int?
-  startedAt       DateTime         @default(now())
-  completedAt     DateTime?
+  score         Int? // Number correct
+  percentage    Float? // score / totalQuestions * 100
+  timeTakenSecs Int?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
 
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  answers         StudentProgress[]
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers StudentProgress[]
 
   @@index([userId])
   @@index([userId, examType, subject])
@@ -688,28 +1065,28 @@ model CBTSession {
 }
 
 model StudentProgress {
-  id                String    @id @default(cuid())
-  userId            String
-  sessionId         String
-  examType          ExamType
-  subject           String
+  id        String   @id @default(cuid())
+  userId    String
+  sessionId String
+  examType  ExamType
+  subject   String
 
   // External ALOC API reference (not a DB relation)
-  alocQuestionId    String    // ALOC API question ID
+  alocQuestionId String // ALOC API question ID
 
-  selectedAnswer    String    // "A" | "B" | "C" | "D"
-  correctAnswer     String    // Stored at answer time from ALOC response
-  isCorrect         Boolean
-  timeTakenSecs     Int       @default(0)
-  isSkipped         Boolean   @default(false)
+  selectedAnswer String // "A" | "B" | "C" | "D"
+  correctAnswer  String // Stored at answer time from ALOC response
+  isCorrect      Boolean
+  timeTakenSecs  Int     @default(0)
+  isSkipped      Boolean @default(false)
 
   // Store the question text snapshot for review (avoids re-fetching)
-  questionSnapshot  Json?     // { question, options, explanation } from ALOC
+  questionSnapshot Json? // { question, options, explanation } from ALOC
 
-  createdAt         DateTime  @default(now())
+  createdAt DateTime @default(now())
 
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  session           CBTSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session CBTSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([sessionId])
@@ -720,40 +1097,40 @@ model StudentProgress {
 
 /// Gamification — study streak and XP
 model StudyStreak {
-  id                String    @id @default(cuid())
-  userId            String    @unique
-  currentStreak     Int       @default(0)
-  longestStreak     Int       @default(0)
-  totalDaysStudied  Int       @default(0)
-  lastStudiedAt     DateTime?
-  weeklyGoalDays    Int       @default(5)
-  xpPoints          Int       @default(0)
-  level             Int       @default(1)
-  totalSessionsDone Int       @default(0)
-  totalQuestionsAnswered Int  @default(0)
-  totalCorrect      Int       @default(0)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  currentStreak          Int       @default(0)
+  longestStreak          Int       @default(0)
+  totalDaysStudied       Int       @default(0)
+  lastStudiedAt          DateTime?
+  weeklyGoalDays         Int       @default(5)
+  xpPoints               Int       @default(0)
+  level                  Int       @default(1)
+  totalSessionsDone      Int       @default(0)
+  totalQuestionsAnswered Int       @default(0)
+  totalCorrect           Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("study_streaks")
 }
 
 /// Subject-level performance analytics (aggregated, updated after each session)
 model SubjectPerformance {
-  id                String    @id @default(cuid())
-  userId            String
-  examType          ExamType
-  subject           String
-  totalAttempted    Int       @default(0)
-  totalCorrect      Int       @default(0)
-  averagePercent    Float     @default(0)
-  lastAttemptAt     DateTime?
-  weakTopics        String[]  @default([]) // Topics that need improvement
-  strongTopics      String[]  @default([])
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  userId         String
+  examType       ExamType
+  subject        String
+  totalAttempted Int       @default(0)
+  totalCorrect   Int       @default(0)
+  averagePercent Float     @default(0)
+  lastAttemptAt  DateTime?
+  weakTopics     String[]  @default([]) // Topics that need improvement
+  strongTopics   String[]  @default([])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([userId, examType, subject])
   @@index([userId])
@@ -762,30 +1139,30 @@ model SubjectPerformance {
 
 /// Course content — stored in our DB (not ALOC)
 model Course {
-  id              String          @id @default(cuid())
-  slug            String          @unique
+  id              String             @id @default(cuid())
+  slug            String             @unique
   title           String
-  description     String          @db.Text
-  category        String          // "digital-skills", "marketing", "ai-tools", "exam-prep"
-  examType        ExamType?       // null for non-exam courses
+  description     String             @db.Text
+  category        String // "digital-skills", "marketing", "ai-tools", "exam-prep"
+  examType        ExamType? // null for non-exam courses
   subject         String?
   thumbnailUrl    String?
-  videoUrl        String?         // Cloudflare Stream URL
-  durationMins    Int             @default(0)
-  totalLessons    Int             @default(0)
-  price           Int             @default(0) // Kobo, 0 = free
-  isPremium       Boolean         @default(false)
-  status          CourseStatus    @default(DRAFT)
-  instructorId    String?         // References User.id of instructor
+  videoUrl        String? // Cloudflare Stream URL
+  durationMins    Int                @default(0)
+  totalLessons    Int                @default(0)
+  price           Int                @default(0) // Kobo, 0 = free
+  isPremium       Boolean            @default(false)
+  status          CourseStatus       @default(DRAFT)
+  instructorId    String? // References User.id of instructor
   instructorName  String?
   tags            String[]
-  prerequisites   String[]        // Course slugs
-  rating          Float           @default(0)
-  enrollmentCount Int             @default(0)
+  prerequisites   String[] // Course slugs
+  rating          Float              @default(0)
+  enrollmentCount Int                @default(0)
   lessons         CourseLesson[]
   enrollments     CourseEnrollment[]
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   @@index([category])
   @@index([examType, subject])
@@ -794,17 +1171,17 @@ model Course {
 }
 
 model CourseLesson {
-  id          String   @id @default(cuid())
-  courseId    String
-  title       String
-  content     String?  @db.Text
-  videoUrl    String?
-  durationMins Int     @default(0)
-  sortOrder   Int      @default(0)
-  isFree      Boolean  @default(false) // Preview lessons
-  createdAt   DateTime @default(now())
+  id           String   @id @default(cuid())
+  courseId     String
+  title        String
+  content      String?  @db.Text
+  videoUrl     String?
+  durationMins Int      @default(0)
+  sortOrder    Int      @default(0)
+  isFree       Boolean  @default(false) // Preview lessons
+  createdAt    DateTime @default(now())
 
-  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
   @@map("course_lessons")
@@ -820,8 +1197,8 @@ model CourseEnrollment {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course          Course    @relation(fields: [courseId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id])
 
   @@unique([userId, courseId])
   @@index([userId])
@@ -856,9 +1233,9 @@ model PlanAIJob {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  user             User            @relation(fields: [userId], references: [id])
-  parentJob        PlanAIJob?      @relation("JobChain", fields: [parentJobId], references: [id])
-  childJobs        PlanAIJob[]     @relation("JobChain")
+  user      User        @relation(fields: [userId], references: [id])
+  parentJob PlanAIJob?  @relation("JobChain", fields: [parentJobId], references: [id])
+  childJobs PlanAIJob[] @relation("JobChain")
 
   @@index([userId])
   @@index([type, status])
@@ -881,7 +1258,7 @@ model PlanAITemplate {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  user          User?         @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 
   @@index([type])
   @@index([isPublic])
@@ -915,9 +1292,9 @@ model ReceptionistClient {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  user                User     @relation(fields: [userId], references: [id])
-  conversations       ConversationLog[]
-  leads               LeadCapture[]
+  user          User              @relation(fields: [userId], references: [id])
+  conversations ConversationLog[]
+  leads         LeadCapture[]
 
   @@map("receptionist_clients")
 }
@@ -941,8 +1318,8 @@ model ConversationLog {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
-  client      ReceptionistClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  lead        LeadCapture?
+  client ReceptionistClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lead   LeadCapture?
 
   @@index([clientId])
   @@index([platform, status])
@@ -951,22 +1328,22 @@ model ConversationLog {
 }
 
 model LeadCapture {
-  id             String              @id @default(cuid())
+  id             String          @id @default(cuid())
   clientId       String
-  conversationId String              @unique
+  conversationId String          @unique
   name           String?
   email          String?
   phone          String?
   platform       MessagePlatform
   intent         String?
   notes          String?
-  isQualified    Boolean             @default(false)
+  isQualified    Boolean         @default(false)
   qualifiedAt    DateTime?
   convertedAt    DateTime?
-  createdAt      DateTime            @default(now())
+  createdAt      DateTime        @default(now())
 
-  client         ReceptionistClient  @relation(fields: [clientId], references: [id])
-  conversation   ConversationLog     @relation(fields: [conversationId], references: [id])
+  client       ReceptionistClient @relation(fields: [clientId], references: [id])
+  conversation ConversationLog    @relation(fields: [conversationId], references: [id])
 
   @@index([clientId, isQualified])
   @@map("lead_captures")
@@ -977,27 +1354,27 @@ model LeadCapture {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model FitnessProfile {
-  id                 String      @id @default(cuid())
-  userId             String      @unique
-  goal               FitnessGoal @default(GENERAL_WELLNESS)
-  fitnessLevel       String      @default("beginner")
-  weightKg           Float?
-  heightCm           Float?
-  targetWeightKg     Float?
-  age                Int?
-  gender             String?
-  activityLevel      String      @default("sedentary")
-  dietaryPrefs       String[]
-  allergies          String[]
-  hasGymAccess       Boolean     @default(false)
-  equipmentAvailable String[]
-  totalWorkouts      Int         @default(0)
-  totalCaloriesBurned Float      @default(0)
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  id                  String      @id @default(cuid())
+  userId              String      @unique
+  goal                FitnessGoal @default(GENERAL_WELLNESS)
+  fitnessLevel        String      @default("beginner")
+  weightKg            Float?
+  heightCm            Float?
+  targetWeightKg      Float?
+  age                 Int?
+  gender              String?
+  activityLevel       String      @default("sedentary")
+  dietaryPrefs        String[]
+  allergies           String[]
+  hasGymAccess        Boolean     @default(false)
+  equipmentAvailable  String[]
+  totalWorkouts       Int         @default(0)
+  totalCaloriesBurned Float       @default(0)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
-  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workoutPlans       WorkoutPlan[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutPlans WorkoutPlan[]
 
   @@map("fitness_profiles")
 }
@@ -1018,7 +1395,7 @@ model WorkoutPlan {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  user           User        @relation(fields: [userId], references: [id])
+  user           User           @relation(fields: [userId], references: [id])
   fitnessProfile FitnessProfile @relation(fields: [profileId], references: [id])
 
   @@index([userId])
@@ -1026,22 +1403,22 @@ model WorkoutPlan {
 }
 
 model WorkoutLog {
-  id              String       @id @default(cuid())
+  id              String      @id @default(cuid())
   userId          String
   planId          String?
-  workoutName     String       @default("Workout Session")
-  type            WorkoutType  @default(HOME_WORKOUT)
-  durationMinutes Int          @default(0)
+  workoutName     String      @default("Workout Session")
+  type            WorkoutType @default(HOME_WORKOUT)
+  durationMinutes Int         @default(0)
   caloriesBurned  Float?
   exercises       Json
   heartRateAvg    Int?
   notes           String?
   mood            String?
   date            DateTime?
-  completedAt     DateTime     @default(now())
-  createdAt       DateTime     @default(now())
+  completedAt     DateTime    @default(now())
+  createdAt       DateTime    @default(now())
 
-  user            User         @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId, completedAt])
   @@index([userId, date])
@@ -1049,12 +1426,12 @@ model WorkoutLog {
 }
 
 model MealLog {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
-  mealName       String   @default("Meal")
+  mealName       String    @default("Meal")
   mealType       String
-  servingSize    Float    @default(1)
-  calories       Float    @default(0)
+  servingSize    Float     @default(1)
+  calories       Float     @default(0)
   proteinG       Float?
   carbsG         Float?
   fatG           Float?
@@ -1062,13 +1439,13 @@ model MealLog {
   totalCalories  Float?
   foods          Json?
   date           DateTime?
-  isNigerianDish Boolean  @default(false)
+  isNigerianDish Boolean   @default(false)
   imageUrl       String?
   notes          String?
-  loggedAt       DateTime @default(now())
-  createdAt      DateTime @default(now())
+  loggedAt       DateTime  @default(now())
+  createdAt      DateTime  @default(now())
 
-  user           User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId, loggedAt])
   @@index([userId, date])
@@ -1085,7 +1462,7 @@ model FitnessStreak {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("fitness_streaks")
 }
@@ -1100,7 +1477,7 @@ model BodyMetricLog {
   notes      String?
   createdAt  DateTime @default(now())
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@map("body_metric_logs")
@@ -1111,24 +1488,24 @@ model BodyMetricLog {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model OSProfile {
-  id                String   @id @default(cuid())
-  userId            String   @unique
-  isADHD            Boolean  @default(false)
-  isDyslexic        Boolean  @default(false)
-  pomodoroWork      Int      @default(25)
-  pomodoroBreak     Int      @default(5)
-  dailyGoalCount    Int      @default(3)
-  energyPeak        String   @default("morning")
-  focusMode         Boolean  @default(false)
-  darkMode          Boolean  @default(false)
-  totalPomodoros    Int      @default(0)
-  totalFocusMinutes Int      @default(0)
-  streakDays        Int      @default(0)
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  isADHD            Boolean   @default(false)
+  isDyslexic        Boolean   @default(false)
+  pomodoroWork      Int       @default(25)
+  pomodoroBreak     Int       @default(5)
+  dailyGoalCount    Int       @default(3)
+  energyPeak        String    @default("morning")
+  focusMode         Boolean   @default(false)
+  darkMode          Boolean   @default(false)
+  totalPomodoros    Int       @default(0)
+  totalFocusMinutes Int       @default(0)
+  streakDays        Int       @default(0)
   lastActiveAt      DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("os_profiles")
 }
@@ -1155,8 +1532,8 @@ model WorkspaceMember {
   userId      String
   role        WorkspaceRole @default(MEMBER)
 
-  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
   @@index([userId])
@@ -1164,31 +1541,31 @@ model WorkspaceMember {
 }
 
 model Project {
-  id          String    @id @default(cuid())
+  id          String  @id @default(cuid())
   workspaceId String
   name        String
-  description String?   @db.Text
+  description String? @db.Text
   color       String?
   createdById String
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy   User      @relation(fields: [createdById], references: [id])
-  tasks       Task[]
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation(fields: [createdById], references: [id])
+  tasks     Task[]
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([workspaceId])
   @@map("projects")
 }
 
 model Task {
-  id               String       @id @default(cuid())
-  workspaceId      String
-  projectId        String?
-  createdById      String
-  assigneeId       String?
-  
+  id          String  @id @default(cuid())
+  workspaceId String
+  projectId   String?
+  createdById String
+  assigneeId  String?
+
   title            String
   description      String?      @db.Text
   status           TaskStatus   @default(TODO)
@@ -1198,22 +1575,22 @@ model Task {
   estimatedMinutes Int?
   actualMinutes    Int?
   tags             String[]
-  
-  parentTaskId     String?
-  sortOrder        Int          @default(0)
-  isRecurring      Boolean      @default(false)
-  recurrenceRule   String?
-  metadata         Json?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
 
-  workspace        Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project          Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy        User         @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  assignee         User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  
-  subtasks         Task[]       @relation("TaskHierarchy")
-  parentTask       Task?        @relation("TaskHierarchy", fields: [parentTaskId], references: [id])
+  parentTaskId   String?
+  sortOrder      Int      @default(0)
+  isRecurring    Boolean  @default(false)
+  recurrenceRule String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User      @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  assignee  User?     @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  subtasks   Task[] @relation("TaskHierarchy")
+  parentTask Task?  @relation("TaskHierarchy", fields: [parentTaskId], references: [id])
 
   @@index([workspaceId, status])
   @@index([projectId])
@@ -1224,19 +1601,19 @@ model Task {
 }
 
 model PomodoroSession {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   userId          String
   taskId          String?
   durationMinutes Int
-  type            String   @default("work")
-  isCompleted     Boolean  @default(false)
-  interruptions   Int      @default(0)
+  type            String    @default("work")
+  isCompleted     Boolean   @default(false)
+  interruptions   Int       @default(0)
   notes           String?
   startedAt       DateTime
   endedAt         DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, startedAt])
   @@map("pomodoro_sessions")
@@ -1259,7 +1636,7 @@ model KnowledgeNode {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, tags])
   @@map("knowledge_nodes")
@@ -1291,9 +1668,9 @@ model Store {
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
-  user               User        @relation(fields: [userId], references: [id])
-  products           Product[]
-  orders             Order[]
+  user     User      @relation(fields: [userId], references: [id])
+  products Product[]
+  orders   Order[]
 
   @@index([userId])
   @@index([slug])
@@ -1306,7 +1683,7 @@ model Product {
   storeId        String
   name           String
   description    String?  @db.Text
-  price          Int      // Kobo
+  price          Int // Kobo
   comparePrice   Int?
   currency       String   @default("NGN")
   imageUrls      String[]
@@ -1321,21 +1698,21 @@ model Product {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  store          Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  orderItems     OrderItem[]
+  store      Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
 
   @@index([storeId, isActive])
   @@map("products")
 }
 
 model Order {
-  id              String      @id @default(cuid())
+  id              String        @id @default(cuid())
   storeId         String
   buyerId         String?
-  orderNumber     String      @unique
-  status          OrderStatus @default(PENDING)
+  orderNumber     String        @unique
+  status          OrderStatus   @default(PENDING)
   totalAmount     Int
-  shippingFee     Int         @default(0)
+  shippingFee     Int           @default(0)
   customerName    String
   customerEmail   String
   customerPhone   String?
@@ -1347,12 +1724,12 @@ model Order {
   shippedAt       DateTime?
   deliveredAt     DateTime?
   cancelledAt     DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  store           Store       @relation(fields: [storeId], references: [id])
-  buyer           User?       @relation("BuyerOrders", fields: [buyerId], references: [id])
-  items           OrderItem[]
+  store Store       @relation(fields: [storeId], references: [id])
+  buyer User?       @relation("BuyerOrders", fields: [buyerId], references: [id])
+  items OrderItem[]
 
   @@index([storeId, status])
   @@index([buyerId])
@@ -1361,7 +1738,7 @@ model Order {
 }
 
 model OrderItem {
-  id          String  @id @default(cuid())
+  id          String @id @default(cuid())
   orderId     String
   productId   String
   productName String
@@ -1369,8 +1746,8 @@ model OrderItem {
   unitPrice   Int
   totalPrice  Int
 
-  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product @relation(fields: [productId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
 
   @@index([orderId])
   @@map("order_items")
@@ -1381,17 +1758,17 @@ model OrderItem {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model AdminLog {
-  id          String   @id @default(cuid())
-  adminId     String
-  action      String
-  targetType  String?
-  targetId    String?
-  reason      String?
-  metadata    Json?
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  adminId    String
+  action     String
+  targetType String?
+  targetId   String?
+  reason     String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
 
-  admin       User     @relation(fields: [adminId], references: [id])
+  admin User @relation(fields: [adminId], references: [id])
 
   @@index([adminId])
   @@index([action, createdAt])
@@ -1413,7 +1790,7 @@ model WaitlistEntry {
   convertedAt  DateTime?
   createdAt    DateTime       @default(now())
 
-  user         User?          @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 
   @@unique([email, productSlug])
   @@index([productSlug, status])
@@ -1425,11 +1802,11 @@ model WaitlistEntry {
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum VibeCoderStatus {
-  APPLIED       // Step 1 submitted — gets WhatsApp community link immediately
-  SHORTLISTED   // Admin shortlisted → assessment token email sent
-  ASSESSED      // Step 2 (deep psychology) submitted
-  ACCEPTED      // Admin accepted → payment link sent
-  ENROLLED      // Payment confirmed — full cohort access
+  APPLIED // Step 1 submitted — gets WhatsApp community link immediately
+  SHORTLISTED // Admin shortlisted → assessment token email sent
+  ASSESSED // Step 2 (deep psychology) submitted
+  ACCEPTED // Admin accepted → payment link sent
+  ENROLLED // Payment confirmed — full cohort access
   REJECTED
   WITHDRAWN
 }
@@ -1444,55 +1821,56 @@ model VibeCoderCohort {
   applicationDeadline DateTime
   capacity            Int      @default(30)
   enrolledCount       Int      @default(0)
-  priceMin            Int      // in NGN kobo
-  priceMax            Int      // in NGN kobo
+  priceMin            Int // in NGN kobo
+  priceMax            Int // in NGN kobo
   description         String?  @db.Text
 
-  applicants          VibeCoderApplicant[]
+  applicants VibeCoderApplicant[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("vibecoders_cohorts")
 }
 
 model VibeCoderApplicant {
-  id        String @id @default(cuid())
+  id String @id @default(cuid())
 
   // Step 1 — interest form
-  name      String
-  email     String @unique
-  whatsapp  String
-  archetype String // dreamer | professionaliser | rural_builder | career_switcher
-  idea      String @db.Text
-  obstacle  String
+  name       String
+  email      String @unique
+  whatsapp   String
+  archetype  String // dreamer | professionaliser | rural_builder | career_switcher
+  idea       String @db.Text
+  obstacle   String
   commitment String
 
   // Pipeline status
-  status    VibeCoderStatus @default(APPLIED)
+  status VibeCoderStatus @default(APPLIED)
 
   // Step 2 — assessment (only after shortlisting)
   assessmentToken  String?   @unique
   assessmentExpiry DateTime?
-  assessmentData   Json?     // raw answers keyed by question id
-  assessmentScore  Json?     // AI-scored dimensions {mindset, clarity, learning, community, overall}
+  assessmentData   Json? // raw answers keyed by question id
+  assessmentScore  Json? // AI-scored dimensions {mindset, clarity, learning, community, overall}
   assessedAt       DateTime?
 
   // Enrollment
   cohortId    String?
-  paymentPath String?   // one_time | installment | isa | scholarship
+  paymentPath String? // one_time | installment | isa | scholarship
   paystackRef String?
   enrolledAt  DateTime?
 
   // Admin
-  adminNotes  String?   @db.Text
-  source      String?
+  adminNotes   String? @db.Text
+  source       String?
   referralCode String?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  cohort      VibeCoderCohort? @relation(fields: [cohortId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+projectSubmissions  VibeCoderProjectSubmission[]
+attendance          VibeCoderAttendance[]
+  cohort VibeCoderCohort? @relation(fields: [cohortId], references: [id])
 
   @@index([status])
   @@index([cohortId])
@@ -1597,32 +1975,32 @@ enum WantedStatus {
 }
 
 model Incident {
-  id                String               @id @default(uuid())
+  id                String                 @id @default(uuid())
   reporterId        String?
   incidentType      IncidentType
   description       String
-  latitude          Decimal              @db.Decimal(10, 8)
-  longitude         Decimal              @db.Decimal(11, 8)
+  latitude          Decimal                @db.Decimal(10, 8)
+  longitude         Decimal                @db.Decimal(11, 8)
   address           String?
   city              String?
   state             String?
-  severity          Severity             @default(MEDIUM)
-  status            IncidentStatus       @default(REPORTED)
-  priorityScore     Int                  @default(50)
-  incidentDate      DateTime             @default(now())
-  reportedAt        DateTime             @default(now())
+  severity          Severity               @default(MEDIUM)
+  status            IncidentStatus         @default(REPORTED)
+  priorityScore     Int                    @default(50)
+  incidentDate      DateTime               @default(now())
+  reportedAt        DateTime               @default(now())
   resolvedAt        DateTime?
   evidenceUrls      String[]
   witnesses         Json?
   assignedOfficerId String?
   officerNotes      String?
-  isAnonymous       Boolean              @default(false)
+  isAnonymous       Boolean                @default(false)
   reporterContact   String?
   aiAnalysis        Json?
-  metadata          Json                 @default("{}")
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  officer           Officer?             @relation("AssignedIncidents", fields: [assignedOfficerId], references: [id])
+  metadata          Json                   @default("{}")
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  officer           Officer?               @relation("AssignedIncidents", fields: [assignedOfficerId], references: [id])
   updates           IncidentUpdate[]
   verifications     IncidentVerification[]
 
@@ -1667,31 +2045,31 @@ model IncidentVerification {
 }
 
 model Officer {
-  id                String              @id @default(uuid())
-  userId            String              @unique
-  badgeNumber       String              @unique
-  rank              String?
-  department        String?
-  station           String?
-  phone             String?
-  emergencyContact  String?
-  assignedArea      Json?
-  lastLatitude      Decimal?            @db.Decimal(10, 8)
-  lastLongitude     Decimal?            @db.Decimal(11, 8)
-  lastSeenAt        DateTime?
-  isActive          Boolean             @default(true)
-  isOnDuty          Boolean             @default(false)
-  isVerified        Boolean             @default(false)
-  verifiedAt        DateTime?
-  verifiedBy        String?
-  incidentsResolved Int                 @default(0)
-  responseTime      Int?
-  rating            Decimal?            @db.Decimal(3, 2)
-  metadata          Json                @default("{}")
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  assignedIncidents Incident[]          @relation("AssignedIncidents")
-  patrolLogs        PatrolLog[]
+  id                 String              @id @default(uuid())
+  userId             String              @unique
+  badgeNumber        String              @unique
+  rank               String?
+  department         String?
+  station            String?
+  phone              String?
+  emergencyContact   String?
+  assignedArea       Json?
+  lastLatitude       Decimal?            @db.Decimal(10, 8)
+  lastLongitude      Decimal?            @db.Decimal(11, 8)
+  lastSeenAt         DateTime?
+  isActive           Boolean             @default(true)
+  isOnDuty           Boolean             @default(false)
+  isVerified         Boolean             @default(false)
+  verifiedAt         DateTime?
+  verifiedBy         String?
+  incidentsResolved  Int                 @default(0)
+  responseTime       Int?
+  rating             Decimal?            @db.Decimal(3, 2)
+  metadata           Json                @default("{}")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  assignedIncidents  Incident[]          @relation("AssignedIncidents")
+  patrolLogs         PatrolLog[]
   emergencyResponses EmergencyResponse[]
 
   @@index([badgeNumber])
@@ -1701,17 +2079,17 @@ model Officer {
 }
 
 model PatrolLog {
-  id                 String   @id @default(uuid())
+  id                 String    @id @default(uuid())
   officerId          String
   startTime          DateTime
   endTime            DateTime?
   route              Json?
-  distanceKm         Decimal? @db.Decimal(8, 2)
-  incidentsResponded Int      @default(0)
+  distanceKm         Decimal?  @db.Decimal(8, 2)
+  incidentsResponded Int       @default(0)
   notes              String?
   checkpoints        Json?
-  createdAt          DateTime @default(now())
-  officer            Officer  @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  createdAt          DateTime  @default(now())
+  officer            Officer   @relation(fields: [officerId], references: [id], onDelete: Cascade)
 
   @@index([officerId])
   @@index([startTime])
@@ -1820,28 +2198,28 @@ model PoliceStation {
 }
 
 model WantedPerson {
-  id                   String       @id @default(uuid())
-  name                 String
-  alias                String[]
-  age                  Int?
-  gender               Gender?
-  height               String?
-  weight               String?
-  complexion           String?
-  charges              String[]
-  description          String
-  photoUrls            String[]
-  lastSeenLocation     String?
-  lastSeenDate         DateTime?
-  status               WantedStatus @default(ACTIVE)
-  priority             Int
-  rewardAmount         Decimal?     @db.Decimal(10, 2)
-  tiplinePhone         String?
-  viewCount            Int          @default(0)
-  tipCount             Int          @default(0)
-  metadata             Json         @default("{}")
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  id               String       @id @default(uuid())
+  name             String
+  alias            String[]
+  age              Int?
+  gender           Gender?
+  height           String?
+  weight           String?
+  complexion       String?
+  charges          String[]
+  description      String
+  photoUrls        String[]
+  lastSeenLocation String?
+  lastSeenDate     DateTime?
+  status           WantedStatus @default(ACTIVE)
+  priority         Int
+  rewardAmount     Decimal?     @db.Decimal(10, 2)
+  tiplinePhone     String?
+  viewCount        Int          @default(0)
+  tipCount         Int          @default(0)
+  metadata         Json         @default("{}")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([status])
   @@index([priority])
@@ -1855,8 +2233,8 @@ model WantedPerson {
 model GeneratedContent {
   id           String   @id @default(cuid())
   userId       String
-  type         String   // image | image_edit | video
-  status       String   // generating | ready | failed
+  type         String // image | image_edit | video
+  status       String // generating | ready | failed
   prompt       String
   model        String
   aspectRatio  String?
@@ -1868,7 +2246,7 @@ model GeneratedContent {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([type])
@@ -1888,7 +2266,7 @@ model UsageRecord {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([productSlug])
@@ -1913,7 +2291,7 @@ model AnalyticsEvent {
   ip         String?
   createdAt  DateTime @default(now())
 
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([event])

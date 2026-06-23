@@ -8,7 +8,7 @@ WORKDIR /
 ARG NODE_AUTH_TOKEN
 
 # 👇 configure npm auth
-RUN echo "@boldmind-tech:registry=https://npm.pkg.github.com" >> .npmrc \
+RUN echo "@boldmindng:registry=https://npm.pkg.github.com" >> .npmrc \
  && echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
 
 COPY /package.json ./

@@ -1,15 +1,13 @@
 
-// ══════════════════════════════════════════════════════════════════
-// FILE: src/modules/automation/automation.service.ts
-// ══════════════════════════════════════════════════════════════════
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bull';
-import { Queue } from 'bull';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import axios from 'axios';
 import { PrismaService } from '../../database/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { QUEUES, JOBS } from '../../common/constants/queues';
 
 @Injectable()
 export class AutomationService {
@@ -21,9 +19,9 @@ export class AutomationService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly ai: AiService,
-    @InjectQueue('social-posts') private readonly socialQueue: Queue,
-    @InjectQueue('email-campaigns') private readonly emailQueue: Queue,
-    @InjectQueue('ai-jobs') private readonly aiQueue: Queue,
+    @InjectQueue(QUEUES.SOCIAL_PUBLISHING) private readonly socialQueue: Queue,
+    @InjectQueue(QUEUES.EMAIL_NOTIFICATIONS) private readonly emailQueue: Queue,
+    @InjectQueue(QUEUES.AI_GENERATION) private readonly aiQueue: Queue,
   ) {
     this.N8N_BASE = config.get<string>('N8N_BASE_URL', 'http://n8n:5678');
     this.N8N_TOKEN = config.get<string>('N8N_API_KEY', '');
@@ -46,7 +44,7 @@ export class AutomationService {
       );
       this.logger.log(`n8n workflow triggered: ${webhookPath}`);
       return data;
-    } catch (err) {
+    } catch (err: any) {
       this.logger.error(`n8n webhook failed (${webhookPath}):`, err.message);
       // Don't throw — automation failures shouldn't break main flow
       return null;
@@ -55,48 +53,44 @@ export class AutomationService {
 
   // ── Social Content Factory ────────────────────────────────
 
-  async scheduleSocialPost(userId: string, dto: {
-    platforms: string[];
-    content: string;
-    mediaUrls?: string[];
-    scheduledAt: Date;
-    caption?: string;
-    hashtags?: string[];
+   async scheduleSocialPost(userId: string, dto: {
+    platforms: string[]; content: string; mediaUrls?: string[]; scheduledAt: Date;
+    caption?: string; hashtags?: string[];
   }) {
     const delay = dto.scheduledAt.getTime() - Date.now();
     if (delay < 0) throw new Error('Scheduled time must be in the future');
 
     const job = await this.socialQueue.add(
-      'post',
+      JOBS.SOCIAL.POST,
       { userId, ...dto },
-      { delay, attempts: 3, backoff: { type: 'exponential', delay: 60000 } },
+      { delay }, // attempts/backoff now come from QUEUE_DEFAULT_JOB_OPTIONS[SOCIAL_PUBLISHING]
     );
 
     this.logger.log(`Social post scheduled for ${dto.scheduledAt.toISOString()} (job ${job.id})`);
     return { jobId: job.id, scheduledAt: dto.scheduledAt };
   }
 
-  async generateContentCalendar(userId: string, input: {
-    businessName: string;
-    industry: string;
-    platforms: string[];
-    weeks: number;
-    themes?: string[];
-  }) {
-    const calendar = await this.ai.structuredChat<any>(
-      `You are a Nigerian social media strategist. Create content calendars optimized for Nigerian audiences.
-Key dates: Nigerian holidays (Independence Day Oct 1, Democracy Day June 12), Islamic/Christian calendars, 
-local trends like SAPA season, JAPA discourse, market days.`,
-      `Create a ${input.weeks}-week content calendar for ${input.businessName} (${input.industry}).
-Platforms: ${input.platforms.join(', ')}
-Themes: ${input.themes?.join(', ') || 'auto-suggest'}
+//   async generateContentCalendar(userId: string, input: {
+//     businessName: string;
+//     industry: string;
+//     platforms: string[];
+//     weeks: number;
+//     themes?: string[];
+//   }) {
+//     const calendar = await this.ai.structuredChat<any>(
+//       `You are a Nigerian social media strategist. Create content calendars optimized for Nigerian audiences.
+// Key dates: Nigerian holidays (Independence Day Oct 1, Democracy Day June 12), Islamic/Christian calendars, 
+// local trends like SAPA season, JAPA discourse, market days.`,
+//       `Create a ${input.weeks}-week content calendar for ${input.businessName} (${input.industry}).
+// Platforms: ${input.platforms.join(', ')}
+// Themes: ${input.themes?.join(', ') || 'auto-suggest'}
 
-Return JSON with: weeks (array), each week having: theme, posts (array of { day, platform, type, caption, hashtags, bestTimeToPost }).
-Include at least 1 Pidgin English post per week.`,
-    );
+// Return JSON with: weeks (array), each week having: theme, posts (array of { day, platform, type, caption, hashtags, bestTimeToPost }).
+// Include at least 1 Pidgin English post per week.`,
+//     );
 
-    return calendar;
-  }
+//     return calendar;
+//   }
 
   async bulkGenerateCaptions(userId: string, input: {
     businessName: string;
@@ -119,16 +113,12 @@ Return JSON with: captions (array of { text, hashtags, emojis, callToAction, typ
 
   // ── Email Campaign automation ─────────────────────────────
 
-  async scheduleEmailCampaign(userId: string, dto: {
-    subject: string;
-    htmlBody: string;
-    recipientEmails: string[];
-    scheduledAt?: Date;
-    batchSize?: number;
+   async scheduleEmailCampaign(userId: string, dto: {
+    subject: string; htmlBody: string; recipientEmails: string[];
+    scheduledAt?: Date; batchSize?: number;
   }) {
     const batchSize = dto.batchSize || 100;
     const batches = [];
-
     for (let i = 0; i < dto.recipientEmails.length; i += batchSize) {
       batches.push(dto.recipientEmails.slice(i, i + batchSize));
     }
@@ -136,13 +126,12 @@ Return JSON with: captions (array of { text, hashtags, emojis, callToAction, typ
     const jobs = await Promise.all(
       batches.map((batch, idx) =>
         this.emailQueue.add(
-          'send-batch',
+          JOBS.EMAIL.SEND_BATCH,
           { userId, subject: dto.subject, htmlBody: dto.htmlBody, recipients: batch },
           {
             delay: dto.scheduledAt
               ? dto.scheduledAt.getTime() - Date.now() + idx * 5000
-              : idx * 5000, // stagger batches by 5s
-            attempts: 3,
+              : idx * 5000, // stagger only — attempts now from defaults
           },
         ),
       ),
@@ -151,18 +140,16 @@ Return JSON with: captions (array of { text, hashtags, emojis, callToAction, typ
     return { batches: batches.length, jobs: jobs.map((j) => j.id), totalRecipients: dto.recipientEmails.length };
   }
 
+
   // ── Email Scraper ─────────────────────────────────────────
 
   async scrapeEmails(userId: string, dto: {
-    targetUrl?: string;
-    linkedinSearchQuery?: string;
-    naijaDirectory?: string;
-    limit?: number;
+    targetUrl?: string; linkedinSearchQuery?: string; naijaDirectory?: string; limit?: number;
   }) {
     const jobId = await this.aiQueue.add(
-      'email-scrape',
+      JOBS.AI.EMAIL_SCRAPE,
       { userId, ...dto, limit: dto.limit || 50 },
-      { attempts: 2, timeout: 60000 },
+      // attempts removed — comes from QUEUE_DEFAULT_JOB_OPTIONS[AI_GENERATION]
     );
 
     return { jobId: jobId.id, status: 'QUEUED', message: 'Email scraping started. Results will be ready in 2-5 minutes.' };
@@ -193,20 +180,16 @@ Return JSON with: captions (array of { text, hashtags, emojis, callToAction, typ
 
   // ── Cron jobs ─────────────────────────────────────────────
 
-  @Cron(CronExpression.EVERY_DAY_AT_8AM)
+   @Cron(CronExpression.EVERY_DAY_AT_8AM)
   async dailySubscriptionCheck() {
-    // Find subscriptions expiring in 3 days and notify users
     const threeDaysFromNow = new Date(Date.now() + 3 * 24 * 3600 * 1000);
     const expiringSoon = await this.prisma.subscription.findMany({
-      where: {
-        status: 'ACTIVE',
-        currentPeriodEnd: { lte: threeDaysFromNow, gte: new Date() },
-      },
+      where: { status: 'ACTIVE', currentPeriodEnd: { lte: threeDaysFromNow, gte: new Date() } },
       include: { user: { select: { email: true, name: true } } },
     });
 
     for (const sub of expiringSoon) {
-      await this.emailQueue.add('expiry-reminder', {
+      await this.emailQueue.add(JOBS.EMAIL.EXPIRY_REMINDER, {
         email: sub.user.email,
         name: sub.user.name,
         productSlug: sub.productSlug,

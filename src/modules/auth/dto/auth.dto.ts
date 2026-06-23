@@ -18,7 +18,7 @@ export class RegisterDto {
   password: string;
  
   @IsOptional()
-  @IsIn(['hustler', 'founder', 'creator', 'student', 'business_owner', 'operator', 'partner'])
+  @IsIn(['hustler', 'founder', 'creator', 'student', 'business_owner', 'operator', 'partner', 'vibe-coder'])
   ecosystemRole?: string;
  
   @IsOptional() @IsString() @MaxLength(20)
@@ -78,7 +78,7 @@ export class ChangePasswordDto {
 export class UpdateRoleDto {
   @IsIn([
     'super_admin', 'admin', 'manager', 'editor', 'support', 'analyst',
-    'hustler', 'founder', 'creator', 'student', 'business_owner', 'operator', 'partner', 'guest',
+    'hustler', 'founder', 'creator', 'student', 'business_owner', 'operator', 'partner', 'guest', 'vibe-coder'
   ])
   role: string;
 }

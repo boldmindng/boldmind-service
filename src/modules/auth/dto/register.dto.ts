@@ -24,7 +24,7 @@ export class RegisterDto {
   })
   password: string;
 
-  @ApiProperty({ example: 'John Doe' })
+  @ApiProperty({ example: 'Charles Uche' })
   @IsString()
   @MinLength(2)
   @MaxLength(100)
@@ -35,7 +35,7 @@ export class RegisterDto {
   @IsString()
   phone?: string;
 
-  @ApiPropertyOptional({ enum: ['HUSTLER', 'FOUNDER', 'CREATOR', 'STUDENT', 'BUSINESS_OWNER'] })
+  @ApiPropertyOptional({ enum: ['HUSTLER', 'FOUNDER', 'CREATOR', 'STUDENT', 'BUSINESS_OWNER', 'VIBE-CODER'] })
   @IsOptional()
   @IsString()
   ecosystemRole?: string;

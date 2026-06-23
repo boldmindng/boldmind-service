@@ -3,7 +3,10 @@ export function validateDatabaseEnvVars(): { valid: boolean; missing: string[] }
     'DATABASE_URL',
     'MONGODB_URL',
     'MONGODB_DB_MAIN',
-    'REDIS_URL',
+    // Three-instance Redis split — see src/database/redis.service.ts
+    'REDIS_SESSION_URL',
+    'REDIS_QUEUE_URL',
+    'REDIS_CACHE_URL',
     'JWT_ACCESS_SECRET',
     'JWT_REFRESH_SECRET',
     'PAYSTACK_SECRET_KEY',

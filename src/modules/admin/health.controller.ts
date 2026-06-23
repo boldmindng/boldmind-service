@@ -1,7 +1,4 @@
 
-// ══════════════════════════════════════════════════════════════════
-// FILE: src/modules/admin/health.controller.ts
-// ══════════════════════════════════════════════════════════════════
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../../database/prisma.service';
@@ -27,7 +24,7 @@ export class HealthController {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       checks.postgres = { status: 'ok', latencyMs: Date.now() - pgStart };
-    } catch (err) {
+    } catch (err: any) {
       checks.postgres = { status: 'error', error: err.message };
     }
 
@@ -37,7 +34,7 @@ export class HealthController {
       await this.redis.set('health:ping', '1', 5);
       await this.redis.get('health:ping');
       checks.redis = { status: 'ok', latencyMs: Date.now() - redisStart };
-    } catch (err) {
+    } catch (err: any) {
       checks.redis = { status: 'error', error: err.message };
     }
 

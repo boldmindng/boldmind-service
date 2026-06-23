@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
-import { BOLDMIND_PRODUCTS } from '@boldmind-tech/utils';
+import { BOLDMIND_PRODUCTS } from '@boldmindng/utils';
 
 @Injectable()
 export class HubService {
@@ -11,7 +11,7 @@ export class HubService {
   ) {}
 
   async getDashboardStats() {
-    return this.redis.cache('hub:dashboard:stats', async () => {
+    return this.redis.withCache('hub:dashboard:stats', async () => {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);

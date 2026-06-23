@@ -1,122 +1,107 @@
-// src/modules/planai/planai.module.ts
 import { Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bull';
-import { BullModule as BullMQModule } from '@nestjs/bullmq';
 import { HttpModule } from '@nestjs/axios';
-import { MongooseModule } from '@nestjs/mongoose';
-import { ConfigModule } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUES } from '../../common/constants/queues';
 
-import { PlanAIController } from './planai.controller';
-import { PlanAIService } from './planai.service';
-import { PlanAIProcessor } from './planai.processor';
+// ─── Controllers ─────────────────────────────────────────────────────────────
+import { PlanAISuiteController } from './controllers/planai-suite.controller';
+import { SocialMediaController } from './controllers/social-media.controller';
+import { AdsCenterController } from './controllers/ads-center.controller';
+import { BrandHomeController } from './controllers/brand-home.controller';
+import {
+  BizIntelController,
+  InvestorKitController,
+  MarketingAutoController,
+  BizDirectoryController,
+} from './controllers/biz-intel.controller';
+import {
+  BizAgentController,
+  ProjectManagerController,
+  PlanCRMController,
+  HRPayrollController,
+  FitnessCenterController,
+  MarketplaceController,
+} from './controllers/tools.controller';
 
-// AI Receptionist
-import { ReceptionistController } from './receptionist/receptionist.controller';
-import { ReceptionistService } from './receptionist/receptionist.service';
-import { MetaWebhookService } from './receptionist/metawebhook.service';
+// ─── Services ─────────────────────────────────────────────────────────────────
+import { PlanAISuiteService } from './services/planai-suite.service';
+import { PlanAIJobService } from './services/planai-job.service';
+import { SocialMediaService } from './services/social-media.service';
+import { AdsCenterService } from './services/ads-center.service';
+import { BrandHomeService } from './services/brand-home.service';
+import { BizIntelService } from './services/biz-intel.service';
+import { InvestorKitService } from './services/investor-kit.service';
+import { MarketingAutoService } from './services/marketing-auto.service';
+import { BizDirectoryService } from './services/biz-directory.service';
+import { BizAgentService } from './services/biz-agent.service';
+import { ProjectManagerService } from './services/project-manager.service';
+import { PlanCRMService } from './services/plan-crm.service';
+import { HRPayrollService } from './services/hr-payroll.service';
+import { FitnessCenterService } from './services/fitness-center.service';
+import { MarketplaceService } from './services/marketplace.service';
+import { MetaWebhookService } from './social-media-manager/metawebhook.service';   // ← ADD
 
-// Credibility AI
-import { CredibilityController } from './credibility/credibility.controller';
-import { CredibilityService } from './credibility/credibility.service';
 
-// Financial AI
-import { FinancialController } from './financial/financial.controller';
-import { FinancialService } from './financial/financial.service';
+// ─── Processor ────────────────────────────────────────────────────────────────
+import { PlanAIJobProcessor } from './processors/planai.processor';
 
-// Analytics AI
-import { AnalyticsController } from './analytics/analytics.controller';
-import { AnalyticsReportService } from './analytics/analytics.service';
-
-// Branding AI
-import { BrandingController } from './branding/branding.controller';
-import { BrandingService } from './branding/branding.service';
-
-// Business Planning
-import { PlanningController } from './business-planning/planning.controller';
-import { PlanningService } from './business-planning/planning.service';
-
-// Investor
-import { InvestorController } from './investor/investor.controller';
-import { InvestorService } from './investor/investor.service';
-
-// Marketing AI
-import { MarketingController } from './marketing/marketing.controller';
-import { MarketingService } from './marketing/marketing.service';
-
-// Storefronts AI
-import { StorefrontsController } from './storefronts/storefronts.controller';
-import { StorefrontsService } from './storefronts/storefronts.service';
-
-// Email Scraper
-import { EmailScraperController } from './emailscraper/emailscraper.controller';
-import { EmailScraperService } from './emailscraper/emailscraper.service';
-import { EmailLeadSchema, ScrapeJobSchema, LeadListSchema } from './emailscraper/emailscraper.schema';
-
-// ViralKit
-import { ViralKitController } from './viralkit/viralkit.controller';
-import { ViralKitService } from './viralkit/viralkit.service';
-import { FalProvider } from './viralkit/fal.provider';
-
-// Fitness
-import { FitnessController } from './fitness/fitness.controller';
-import { FitnessService } from './fitness/fitness.service';
+// ─────────────────────────────────────────────────────────────────────────────
+// PlanAI queues
+//
+// AI_GENERATION  — all async PlanAI document jobs (business plan, pitch deck,
+//                  branding, storefront, etc.) and the email-scrape fan-out.
+//                  Processor: PlanAIJobProcessor (@Processor(QUEUES.AI_GENERATION))
+//
+// WEBHOOK_DELIVERY — outgoing enterprise webhook fan-out triggered by planai
+//                  events (e.g. job completed). Processor lives in the api module;
+//                  PlanAIModule registers the queue here only to enqueue, not consume.
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Module({
   imports: [
-    ConfigModule,
-    HttpModule,
-
-    // Bull queues (@nestjs/bull)
-    BullModule.registerQueue(
-      { name: 'planai-jobs' },
-    ),
-
-    // BullMQ queues (@nestjs/bullmq)
-    BullMQModule.registerQueue(
-      { name: 'receptionist' },
-      { name: 'emailscraper' },
-    ),
-
-    // Mongoose schemas for EmailScraper
-    MongooseModule.forFeature([
-      { name: 'EmailLead', schema: EmailLeadSchema },
-      { name: 'ScrapeJob', schema: ScrapeJobSchema },
-      { name: 'LeadList', schema: LeadListSchema },
-    ]),
+    HttpModule
   ],
   controllers: [
-    PlanAIController,
-    ReceptionistController,
-    CredibilityController,
-    FinancialController,
-    AnalyticsController,
-    BrandingController,
-    PlanningController,
-    InvestorController,
-    MarketingController,
-    StorefrontsController,
-    EmailScraperController,
-    ViralKitController,
-    FitnessController,
+    PlanAISuiteController,
+    SocialMediaController,
+    AdsCenterController,
+    BrandHomeController,
+    BizIntelController,
+    InvestorKitController,
+    MarketingAutoController,
+    BizDirectoryController,
+    BizAgentController,
+    ProjectManagerController,
+    PlanCRMController,
+    HRPayrollController,
+    FitnessCenterController,
+    MarketplaceController,
   ],
   providers: [
-    PlanAIService,
-    PlanAIProcessor,
-    ReceptionistService,
-    MetaWebhookService,
-    CredibilityService,
-    FinancialService,
-    AnalyticsReportService,
-    BrandingService,
-    PlanningService,
-    InvestorService,
-    MarketingService,
-    StorefrontsService,
-    EmailScraperService,
-    ViralKitService,
-    FalProvider,
-    FitnessService,
+    PlanAISuiteService,
+    PlanAIJobService,
+    SocialMediaService,
+    MetaWebhookService,        // ← ADD
+    AdsCenterService,
+    BrandHomeService,
+    BizIntelService,
+    InvestorKitService,
+    MarketingAutoService,
+    BizDirectoryService,
+    BizAgentService,
+    ProjectManagerService,
+    PlanCRMService,
+    HRPayrollService,
+    FitnessCenterService,
+    MarketplaceService,
+    PlanAIJobProcessor,
   ],
-  exports: [PlanAIService, MetaWebhookService],
+  exports: [
+    PlanAISuiteService,
+    PlanAIJobService,
+    SocialMediaService,
+    MarketingAutoService,
+    BizAgentService,
+  ],
 })
 export class PlanAIModule {}

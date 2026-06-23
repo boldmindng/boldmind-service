@@ -21,8 +21,8 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { ContentService } from './amebogist.service';
 import { RssService } from './rss.service';
-import { TrendService } from './src/services/trend.service';
-import { ContentAiService, GenerateArticleOptions } from './src/services/ai.service';
+import { TrendService } from '../ai/services/trend.service';
+import {AiService } from '../ai/ai.service';
 import {
   CreatePostDto,
   UpdatePostDto,
@@ -36,7 +36,7 @@ export class ContentController {
     private readonly contentService: ContentService,
     private readonly rssService: RssService,
     private readonly trendService: TrendService,
-    private readonly contentAiService: ContentAiService,
+    private readonly contentAiService: AiService,
   ) {}
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ export class ContentController {
   @UseGuards(JwtAuthGuard)
   @Post('articles/generate-ai')
   async generateAIPost(
-    @Body() dto: GenerateArticleOptions,
+    @Body() dto: any,
     @CurrentUser() user: { id: string },
   ) {
     const generated = await this.contentAiService.generateArticle({

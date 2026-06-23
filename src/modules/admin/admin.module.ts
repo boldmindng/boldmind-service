@@ -1,6 +1,4 @@
-// ══════════════════════════════════════════════════════════════════
-// FILE: src/modules/admin/admin.module.ts
-// ══════════════════════════════════════════════════════════════════
+
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AdminController } from './admin.controller';

@@ -71,6 +71,8 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+dump_6380.rdb
+*.rdb
 
 # Uploads
 uploads/

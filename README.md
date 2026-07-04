@@ -304,3 +304,6 @@ boldmind-service
 └─ tsconfig.json
 
 ```
+
+
+echo 'export NODE_AUTH_TOKEN="ghp_PASTE_YOUR_NEW_TOKEN_HERE"' >> ~/.bashrc

@@ -1,7 +1,15 @@
-# BoldmindNG Ecosystem — System Design v2.0
-tree -I "node_modules|dist|coverage|.git" -L 5
+# BoldmindNG Ecosystem — System Design v2.1 (Merged)
+
 **Canonical Reference | All 8 Repositories + Chrome Extension | Africa/Lagos | June 2026**
 **Stack: Next.js 16.2 · React 19.2 · pnpm 10.34.1 · Node 22.22.3 · NestJS · Prisma · MongoDB**
+
+> **MERGE NOTE (v2.1):** This document merges `boldmind-system-design-v2.md` with the
+> `boldmind-system-design-v2-alignment-addendum.md` into a single source of truth. Every gap
+> the addendum identified has been folded in at the relevant section (Redis service, queue
+> constants, known issues/bug fixes, environment variables, changeset workflow, combined wave
+> priority summary, and per-package audit checklists). The addendum document is now superseded
+> by this file and does not need to be read separately. Companion docs `boldmind-shared-monorepo.md`
+> and `boldmind-service-canonical.md` have also been updated to reflect these same gaps.
 
 > **HOW TO USE:** This document is always read alongside your actual project trees.
 > Never infer file paths — always attach the repo's project-tree.md when generating code.
@@ -29,6 +37,11 @@ tree -I "node_modules|dist|coverage|.git" -L 5
 16. [Missing Modules Table (Complete)] (#16-Missing-Modules-Table-complete)
 17. [API Reference Cross-Reference] (#17-Missing-Modules-Table)
 18. [Cross-App Package Usage Matrix] (#18-Missing-Modules-Table)
+19. [Tooling Packages](#19-tooling-packages)
+20. [Known Issues & Required Fixes](#20-known-issues--required-fixes) — _merged from addendum §K_
+21. [Environment Variables — Complete Checklist](#21-environment-variables--complete-checklist) — _merged from addendum §L_
+22. [Combined Implementation Priority (Wave 0 → 5)](#22-combined-implementation-priority-wave-0--5) — _merged from addendum §N_
+23. [Package Audit Checklists](#23-package-audit-checklists) — _merged from addendum §O_
 
 ---
 
@@ -36,32 +49,32 @@ tree -I "node_modules|dist|coverage|.git" -L 5
 
 ### 1.1 All Repos — Confirmed from Project Trees
 
-| Repo | Type | Deploy | Primary Domain | Confirmed Files |
-|---|---|---|---|---|
-| `boldmind-service` | NestJS monolith | Railway | `api.boldmind.ng` | `src/app.module.ts`, `prisma/schema.prisma` |
-| `boldmind-shared` | pnpm monorepo (turbo) | npm/GitHub Packages | — | `turbo.json`, `pnpm-workspace.yaml`, 7 packages |
-| `boldmind-web` | Next.js 16.2 | Vercel | `boldmind.ng` | `app/boldmindLayout.tsx`, `app/sso/route.ts` |
-| `planai-suite` | Next.js 16.2 | Vercel | `planai.boldmind.ng` | `app/planai-landingLayout.tsx`, `lib/suite-products.ts` |
-| `amebogist-web` | Next.js 16.2 | Vercel | `amebogist.ng` | `app/amebogistLayout.tsx`, `components/AdBanner.tsx` |
-| `educenter-web` | Next.js 16.2 | Vercel | `educenter.com.ng` | `app/educenterLayout.tsx`, `app/(dashboard)/study-hub/` |
-| `villagecircle-web` | Next.js 16.2 | Vercel | `villagecircle.ng` | `app/villagecircleLayout.tsx`, `app/(vibe-coders)/` |
-| `polymind-extension` | Chrome Extension MV3 | Chrome Web Store | — | New repo — see Section 10 |
+| Repo                 | Type                  | Deploy              | Primary Domain       | Confirmed Files                                         |
+| -------------------- | --------------------- | ------------------- | -------------------- | ------------------------------------------------------- |
+| `boldmind-service`   | NestJS monolith       | Railway             | `api.boldmind.ng`    | `src/app.module.ts`, `prisma/schema.prisma`             |
+| `boldmind-shared`    | pnpm monorepo (turbo) | npm/GitHub Packages | —                    | `turbo.json`, `pnpm-workspace.yaml`, 7 packages         |
+| `boldmind-web`       | Next.js 16.2          | Vercel              | `boldmind.ng`        | `app/boldmindLayout.tsx`, `app/sso/route.ts`            |
+| `planai-suite`       | Next.js 16.2          | Vercel              | `planai.boldmind.ng` | `app/planai-landingLayout.tsx`, `lib/suite-products.ts` |
+| `amebogist-web`      | Next.js 16.2          | Vercel              | `amebogist.ng`       | `app/amebogistLayout.tsx`, `components/AdBanner.tsx`    |
+| `educenter-web`      | Next.js 16.2          | Vercel              | `educenter.com.ng`   | `app/educenterLayout.tsx`, `app/(dashboard)/study-hub/` |
+| `villagecircle-web`  | Next.js 16.2          | Vercel              | `villagecircle.ng`   | `app/villagecircleLayout.tsx`, `app/(vibe-coders)/`     |
+| `polymind-extension` | Chrome Extension MV3  | Chrome Web Store    | —                    | New repo — see Section 10                               |
 
 ### 1.2 Confirmed Stack (use EXACTLY these versions)
 
 ```json
 {
-  "runtime":     "Node.js 22.22.3",
+  "runtime": "Node.js 22.22.3",
   "packageManager": "pnpm@10.34.1",
-  "next":        "16.2.x",
-  "react":       "19.2.x",
-  "react-dom":   "19.2.x",
-  "typescript":  "5.x",
-  "nestjs":      "^10.x",
+  "next": "16.2.x",
+  "react": "19.2.x",
+  "react-dom": "19.2.x",
+  "typescript": "5.x",
+  "nestjs": "^10.x",
   "@prisma/client": "^6.x",
-  "mongoose":    "^8.x",
-  "bullmq":      "^5.x",
-  "ioredis":     "^5.x"
+  "mongoose": "^8.x",
+  "bullmq": "^5.x",
+  "ioredis": "^5.x"
 }
 ```
 
@@ -223,7 +236,9 @@ The following are **confirmed existing** in `src/modules/`:
 ## 3. Redis Split Architecture
 
 ### Problem
+
 A single Redis instance handling sessions, BullMQ queues, and caching simultaneously risks:
+
 - Memory saturation from large job payloads crowding out session keys
 - BullMQ's BRPOP blocking commands competing with session reads
 - A single `FLUSHDB` accident wiping all three data planes
@@ -238,55 +253,88 @@ REDIS_CACHE_URL     → Upstash Redis #3 (eviction=allkeys-lru, no persistence)
 
 ### 3.1 What Goes Where
 
-| Data | Redis Instance | Key Pattern | TTL |
-|---|---|---|---|
-| JWT refresh token families | SESSION | `refresh:{family}:{tokenId}` | 7 days |
-| SSO relay tokens | SESSION | `sso:relay:{64-hex}` | 60 seconds |
-| Rate limit counters | SESSION | `ratelimit:{endpoint}:{userId}` | 60 seconds |
-| OTP codes | SESSION | `otp:{purpose}:{email}` | 15 minutes |
-| Feature flags | SESSION | `flags:{userId}` / `flags:global` | 5 minutes |
-| BullMQ job queues (all) | QUEUE | BullMQ internal keys | varies |
-| BullMQ completed jobs | QUEUE | BullMQ internal keys | 24 hours |
-| BullMQ failed jobs | QUEUE | BullMQ internal keys | 7 days |
-| ALOC exam questions | CACHE | `aloc:{subject}:{type}:{year}` | 24 hours |
-| Exchange rates (BorderlessRemit) | CACHE | `remit:rates:{currency}` | 1 hour |
-| Trend data | CACHE | `trends:ng:{date}` | 2 hours |
-| Admin dashboard stats | CACHE | `admin:stats:{date}` | 15 minutes |
-| PlanAI tool access map | CACHE | `planai:access:{userId}` | 5 minutes |
-| PostHog feature flags | CACHE | `posthog:flags:{userId}` | 5 minutes |
+| Data                             | Redis Instance | Key Pattern                       | TTL        |
+| -------------------------------- | -------------- | --------------------------------- | ---------- |
+| JWT refresh token families       | SESSION        | `refresh:{family}:{tokenId}`      | 7 days     |
+| SSO relay tokens                 | SESSION        | `sso:relay:{64-hex}`              | 60 seconds |
+| Rate limit counters              | SESSION        | `ratelimit:{endpoint}:{userId}`   | 60 seconds |
+| OTP codes                        | SESSION        | `otp:{purpose}:{email}`           | 15 minutes |
+| Feature flags                    | SESSION        | `flags:{userId}` / `flags:global` | 5 minutes  |
+| BullMQ job queues (all)          | QUEUE          | BullMQ internal keys              | varies     |
+| BullMQ completed jobs            | QUEUE          | BullMQ internal keys              | 24 hours   |
+| BullMQ failed jobs               | QUEUE          | BullMQ internal keys              | 7 days     |
+| ALOC exam questions              | CACHE          | `aloc:{subject}:{type}:{year}`    | 24 hours   |
+| Exchange rates (BorderlessRemit) | CACHE          | `remit:rates:{currency}`          | 1 hour     |
+| Trend data                       | CACHE          | `trends:ng:{date}`                | 2 hours    |
+| Admin dashboard stats            | CACHE          | `admin:stats:{date}`              | 15 minutes |
+| PlanAI tool access map           | CACHE          | `planai:access:{userId}`          | 5 minutes  |
+| PostHog feature flags            | CACHE          | `posthog:flags:{userId}`          | 5 minutes  |
 
 ### 3.2 NestJS Redis Configuration
 
+> **Merged from addendum §F:** the block below is the _complete_, production-grade
+> `redis.service.ts` (adds structured connect/error/close logging and a `reconnectOnError`
+> handler) — it supersedes the shorter sketch that appeared in earlier drafts of this section.
+
 ```typescript
-// src/database/redis.service.ts — UPDATED
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
+// src/database/redis.service.ts — COMPLETE FILE (replaces the single-instance service)
+import { Injectable, OnModuleDestroy, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import Redis from "ioredis";
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
-  readonly session: Redis;  // auth, SSO, rate limiting, OTP
-  readonly queue: Redis;    // BullMQ (passed to Bull config)
-  readonly cache: Redis;    // ALOC, trends, computed data
+  private readonly logger = new Logger(RedisService.name);
+
+  /**
+   * SESSION — SSO relay tokens, JWT refresh families, OTP codes,
+   *           rate limit counters, feature flags.
+   * Upstash config: 256MB, AOF persistence, max-memory-policy=noeviction
+   */
+  readonly session: Redis;
+
+  /**
+   * QUEUE — BullMQ ONLY. Never use for reads/writes directly.
+   * Upstash config: 1GB+, RDB persistence, max-memory-policy=noeviction
+   */
+  readonly queue: Redis;
+
+  /**
+   * CACHE — ALOC questions, exchange rates, computed stats, feature flags.
+   * Upstash config: 512MB, no persistence, max-memory-policy=allkeys-lru
+   */
+  readonly cache: Redis;
 
   constructor(private config: ConfigService) {
-    this.session = new Redis(this.config.get('REDIS_SESSION_URL')!, {
-      maxRetriesPerRequest: null,  // required by BullMQ workers
-      lazyConnect: false,
-    });
-
-    this.queue = new Redis(this.config.get('REDIS_QUEUE_URL')!, {
-      maxRetriesPerRequest: null,
-      lazyConnect: false,
-    });
-
-    this.cache = new Redis(this.config.get('REDIS_CACHE_URL')!, {
-      maxRetriesPerRequest: 3,
-      lazyConnect: false,
-    });
+    this.session = this.createClient("REDIS_SESSION_URL", "session");
+    this.queue = this.createClient("REDIS_QUEUE_URL", "queue");
+    this.cache = this.createClient("REDIS_CACHE_URL", "cache");
   }
 
-  onModuleDestroy() {
+  private createClient(envKey: string, label: string): Redis {
+    const url = this.config.getOrThrow<string>(envKey);
+    const client = new Redis(url, {
+      maxRetriesPerRequest: null, // required by BullMQ
+      lazyConnect: false,
+      reconnectOnError: (err) => {
+        this.logger.error(`Redis [${label}] error: ${err.message}`);
+        return true;
+      },
+    });
+
+    client.on("connect", () => this.logger.log(`Redis [${label}] connected`));
+    client.on("error", (e) =>
+      this.logger.error(`Redis [${label}] error`, e.message),
+    );
+    client.on("close", () =>
+      this.logger.warn(`Redis [${label}] connection closed`),
+    );
+
+    return client;
+  }
+
+  onModuleDestroy(): void {
+    this.logger.log("Closing Redis connections...");
     this.session.quit();
     this.queue.quit();
     this.cache.quit();
@@ -297,9 +345,13 @@ export class RedisService implements OnModuleDestroy {
 ```typescript
 // src/app.module.ts — BullMQ uses QUEUE redis only
 BullModule.forRootAsync({
-  inject: [RedisService],
-  useFactory: (redis: RedisService) => ({
-    connection: redis.queue,  // ← queue instance, not session
+  inject:      [RedisService],
+  useFactory:  (redis: RedisService) => ({
+    connection: redis.queue,   // ← QUEUE instance ONLY, never session or cache
+    defaultJobOptions: {
+      removeOnComplete: { count: 1000 },        // keep last 1000 completed
+      removeOnFail:     { age: 7 * 24 * 3600 }, // keep failed for 7 days
+    },
   }),
 }),
 ```
@@ -427,7 +479,7 @@ export class WalletService {
 
   async getOrCreate(userId: string): Promise<Wallet> {
     return this.prisma.wallet.upsert({
-      where:  { userId },
+      where: { userId },
       update: {},
       create: { userId, balanceKobo: 0 },
     });
@@ -436,30 +488,30 @@ export class WalletService {
   // ── Credit (add funds) ─────────────────────────────────────────────────────
 
   async credit(params: {
-    userId:      string;
-    amountKobo:  number;
-    source:      WalletSource;
+    userId: string;
+    amountKobo: number;
+    source: WalletSource;
     description: string;
-    reference?:  string;
-    metadata?:   Record<string, unknown>;
+    reference?: string;
+    metadata?: Record<string, unknown>;
   }): Promise<WalletLedger> {
     // All wallet mutations use a Prisma transaction to prevent race conditions
     return this.prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.update({
         where: { userId: params.userId },
-        data:  { balanceKobo: { increment: params.amountKobo } },
+        data: { balanceKobo: { increment: params.amountKobo } },
       });
 
       return tx.walletLedger.create({
         data: {
-          walletId:     wallet.id,
-          type:         'CREDIT',
-          amountKobo:   params.amountKobo,
+          walletId: wallet.id,
+          type: "CREDIT",
+          amountKobo: params.amountKobo,
           balanceAfter: wallet.balanceKobo,
-          description:  params.description,
-          reference:    params.reference,
-          source:       params.source,
-          metadata:     params.metadata ?? {},
+          description: params.description,
+          reference: params.reference,
+          source: params.source,
+          metadata: params.metadata ?? {},
         },
       });
     });
@@ -468,27 +520,31 @@ export class WalletService {
   // ── Debit (spend funds) ────────────────────────────────────────────────────
 
   async debit(params: {
-    userId:      string;
-    amountKobo:  number;
-    source:      WalletSource;
+    userId: string;
+    amountKobo: number;
+    source: WalletSource;
     description: string;
-    reference?:  string;
+    reference?: string;
   }): Promise<WalletLedger> {
     return this.prisma.$transaction(async (tx) => {
-      const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: params.userId } });
+      const wallet = await tx.wallet.findUniqueOrThrow({
+        where: { userId: params.userId },
+      });
 
       // Insufficient funds
       if (wallet.balanceKobo < params.amountKobo) {
         throw new BadRequestException(
-          `Insufficient wallet balance. Available: ₦${wallet.balanceKobo / 100}`
+          `Insufficient wallet balance. Available: ₦${wallet.balanceKobo / 100}`,
         );
       }
 
       // Daily debit cap check
-      const cap = wallet.tier === 'TIER1' ? 5_000_000 : 500_000_000; // kobo
+      const cap = wallet.tier === "TIER1" ? 5_000_000 : 500_000_000; // kobo
       await this.resetDailyDebitIfNeeded(tx, wallet);
       if (wallet.dailyDebitKobo + params.amountKobo > cap) {
-        throw new BadRequestException('Daily debit limit exceeded for this wallet tier');
+        throw new BadRequestException(
+          "Daily debit limit exceeded for this wallet tier",
+        );
       }
 
       // Locked wallet
@@ -498,21 +554,21 @@ export class WalletService {
 
       const updated = await tx.wallet.update({
         where: { userId: params.userId },
-        data:  {
-          balanceKobo:    { decrement: params.amountKobo },
+        data: {
+          balanceKobo: { decrement: params.amountKobo },
           dailyDebitKobo: { increment: params.amountKobo },
         },
       });
 
       return tx.walletLedger.create({
         data: {
-          walletId:     updated.id,
-          type:         'DEBIT',
-          amountKobo:   -params.amountKobo,   // negative for debits
+          walletId: updated.id,
+          type: "DEBIT",
+          amountKobo: -params.amountKobo, // negative for debits
           balanceAfter: updated.balanceKobo,
-          description:  params.description,
-          reference:    params.reference,
-          source:       params.source,
+          description: params.description,
+          reference: params.reference,
+          source: params.source,
         },
       });
     });
@@ -521,14 +577,20 @@ export class WalletService {
   // ── Daily reset ────────────────────────────────────────────────────────────
 
   private async resetDailyDebitIfNeeded(tx: any, wallet: any) {
-    const now      = new Date();
-    const lagosNow = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Lagos' }));
-    const lastReset = new Date(wallet.lastDebitReset.toLocaleString('en-US', { timeZone: 'Africa/Lagos' }));
+    const now = new Date();
+    const lagosNow = new Date(
+      now.toLocaleString("en-US", { timeZone: "Africa/Lagos" }),
+    );
+    const lastReset = new Date(
+      wallet.lastDebitReset.toLocaleString("en-US", {
+        timeZone: "Africa/Lagos",
+      }),
+    );
 
     if (lagosNow.toDateString() !== lastReset.toDateString()) {
       await tx.wallet.update({
         where: { id: wallet.id },
-        data:  { dailyDebitKobo: 0, lastDebitReset: now },
+        data: { dailyDebitKobo: 0, lastDebitReset: now },
       });
       wallet.dailyDebitKobo = 0;
     }
@@ -539,10 +601,10 @@ export class WalletService {
   async getBalance(userId: string) {
     const wallet = await this.getOrCreate(userId);
     return {
-      balanceKobo:  wallet.balanceKobo,
-      balanceNaira: `₦${(wallet.balanceKobo / 100).toLocaleString('en-NG')}`,
-      tier:         wallet.tier,
-      isLocked:     wallet.isLocked,
+      balanceKobo: wallet.balanceKobo,
+      balanceNaira: `₦${(wallet.balanceKobo / 100).toLocaleString("en-NG")}`,
+      tier: wallet.tier,
+      isLocked: wallet.isLocked,
     };
   }
 
@@ -552,15 +614,21 @@ export class WalletService {
     const wallet = await this.getOrCreate(userId);
     const [data, total] = await this.prisma.$transaction([
       this.prisma.walletLedger.findMany({
-        where:   { walletId: wallet.id },
-        orderBy: { createdAt: 'desc' },
-        skip:    (page - 1) * pageSize,
-        take:    pageSize,
+        where: { walletId: wallet.id },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
       }),
       this.prisma.walletLedger.count({ where: { walletId: wallet.id } }),
     ]);
 
-    return { data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    return {
+      data,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
   }
 
   // ── Upgrade to Tier 2 (BVN required) ─────────────────────────────────────
@@ -570,11 +638,11 @@ export class WalletService {
     await this.prisma.$transaction([
       this.prisma.wallet.update({
         where: { userId },
-        data:  { tier: 'TIER2' },
+        data: { tier: "TIER2" },
       }),
       this.prisma.user.update({
         where: { id: userId },
-        data:  { bvnHash },
+        data: { bvnHash },
       }),
     ]);
   }
@@ -586,7 +654,7 @@ export class WalletService {
 ```typescript
 // src/modules/wallet/wallet.controller.ts
 
-@Controller('wallet')
+@Controller("wallet")
 @UseGuards(JwtAuthGuard)
 export class WalletController {
   constructor(private readonly wallet: WalletService) {}
@@ -596,16 +664,16 @@ export class WalletController {
     return this.wallet.getBalance(user.sub);
   }
 
-  @Get('ledger')
+  @Get("ledger")
   getLedger(
     @CurrentUser() user: JwtPayload,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('pageSize', new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
+    @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query("pageSize", new DefaultValuePipe(20), ParseIntPipe) pageSize: number,
   ) {
     return this.wallet.getLedger(user.sub, page, Math.min(pageSize, 50));
   }
 
-  @Post('upgrade')
+  @Post("upgrade")
   @HttpCode(200)
   upgradeTier(@CurrentUser() user: JwtPayload, @Body() dto: UpgradeTierDto) {
     return this.wallet.upgradeTier(user.sub, dto.bvnHash);
@@ -661,7 +729,7 @@ OTP Delivery Order:
 When to try WhatsApp first:
   - User has a verified phone number on file
   - phone starts with +234 or is a Nigerian number
-  
+
 When to go straight to SMS:
   - User explicitly chose SMS in preferences
   - WhatsApp delivery failed (status: 'failed' from Meta webhook)
@@ -687,6 +755,7 @@ boldmind-shared/packages/sms/
 ```
 
 **package.json:**
+
 ```json
 {
   "name": "@boldmindng/sms",
@@ -711,36 +780,40 @@ boldmind-shared/packages/sms/
 
 ```typescript
 // packages/sms/src/otp.service.ts
-export type OTPPurpose = 'phone_verify' | 'password_reset' | 'login_2fa' | 'transaction_confirm';
-export type OTPChannel = 'whatsapp' | 'sms' | 'email';
+export type OTPPurpose =
+  | "phone_verify"
+  | "password_reset"
+  | "login_2fa"
+  | "transaction_confirm";
+export type OTPChannel = "whatsapp" | "sms" | "email";
 
 export interface SendOTPParams {
-  to:      string;        // E.164 phone number, e.g. +2348012345678
-  code:    string;        // 6-digit OTP
+  to: string; // E.164 phone number, e.g. +2348012345678
+  code: string; // 6-digit OTP
   purpose: OTPPurpose;
-  name?:   string;        // user's first name for personalisation
-  preferChannel?: OTPChannel;  // user preference override
+  name?: string; // user's first name for personalisation
+  preferChannel?: OTPChannel; // user preference override
 }
 
 export interface OTPResult {
   delivered: boolean;
-  channel:   OTPChannel;
+  channel: OTPChannel;
   messageId?: string;
-  error?:    string;
+  error?: string;
 }
 
 export class OTPService {
   constructor(
     private readonly whatsapp: WhatsAppProvider,
-    private readonly termii:   TermiiProvider,
+    private readonly termii: TermiiProvider,
   ) {}
 
   async send(params: SendOTPParams): Promise<OTPResult> {
     // Try WhatsApp first for Nigerian numbers
-    const isNigerian = params.to.startsWith('+234');
-    const preferred  = params.preferChannel;
+    const isNigerian = params.to.startsWith("+234");
+    const preferred = params.preferChannel;
 
-    if (preferred !== 'sms' && isNigerian) {
+    if (preferred !== "sms" && isNigerian) {
       const result = await this.tryWhatsApp(params);
       if (result.delivered) return result;
       // WhatsApp failed → fall through to SMS
@@ -751,33 +824,37 @@ export class OTPService {
     if (smsResult.delivered) return smsResult;
 
     // Both failed
-    return { delivered: false, channel: 'sms', error: 'All delivery channels failed' };
+    return {
+      delivered: false,
+      channel: "sms",
+      error: "All delivery channels failed",
+    };
   }
 
   private async tryWhatsApp(params: SendOTPParams): Promise<OTPResult> {
     try {
       const messageId = await this.whatsapp.sendOTP({
-        to:      params.to,
-        code:    params.code,
-        name:    params.name,
+        to: params.to,
+        code: params.code,
+        name: params.name,
         purpose: params.purpose,
       });
-      return { delivered: true, channel: 'whatsapp', messageId };
+      return { delivered: true, channel: "whatsapp", messageId };
     } catch (e) {
-      return { delivered: false, channel: 'whatsapp', error: String(e) };
+      return { delivered: false, channel: "whatsapp", error: String(e) };
     }
   }
 
   private async trySMS(params: SendOTPParams): Promise<OTPResult> {
     try {
       const messageId = await this.termii.sendOTP({
-        to:      params.to,
-        code:    params.code,
+        to: params.to,
+        code: params.code,
         purpose: params.purpose,
       });
-      return { delivered: true, channel: 'sms', messageId };
+      return { delivered: true, channel: "sms", messageId };
     } catch (e) {
-      return { delivered: false, channel: 'sms', error: String(e) };
+      return { delivered: false, channel: "sms", error: String(e) };
     }
   }
 }
@@ -790,54 +867,54 @@ export class OTPService {
 // Uses Meta Cloud API (WhatsApp Business API)
 
 export class WhatsAppProvider {
-  private readonly baseUrl = 'https://graph.facebook.com/v20.0';
+  private readonly baseUrl = "https://graph.facebook.com/v20.0";
 
   constructor(
-    private readonly phoneNumberId: string,  // META_WHATSAPP_PHONE_NUMBER_ID
-    private readonly accessToken:   string,  // META_WHATSAPP_ACCESS_TOKEN
+    private readonly phoneNumberId: string, // META_WHATSAPP_PHONE_NUMBER_ID
+    private readonly accessToken: string, // META_WHATSAPP_ACCESS_TOKEN
   ) {}
 
   async sendOTP(params: {
-    to:      string;
-    code:    string;
-    name?:   string;
+    to: string;
+    code: string;
+    name?: string;
     purpose: string;
   }): Promise<string> {
     // Use a WhatsApp template message for OTP
     // Template must be pre-approved by Meta: "boldmind_otp"
     // Template variables: {{1}} = name, {{2}} = code, {{3}} = purpose, {{4}} = expiry
     const body = {
-      messaging_product: 'whatsapp',
-      to: params.to.replace('+', ''),  // Meta expects number without +
-      type: 'template',
+      messaging_product: "whatsapp",
+      to: params.to.replace("+", ""), // Meta expects number without +
+      type: "template",
       template: {
-        name:     'boldmind_otp',
-        language: { code: 'en' },
+        name: "boldmind_otp",
+        language: { code: "en" },
         components: [
           {
-            type: 'body',
+            type: "body",
             parameters: [
-              { type: 'text', text: params.name ?? 'there' },
-              { type: 'text', text: params.code },
-              { type: 'text', text: this.purposeLabel(params.purpose) },
-              { type: 'text', text: '15 minutes' },
+              { type: "text", text: params.name ?? "there" },
+              { type: "text", text: params.code },
+              { type: "text", text: this.purposeLabel(params.purpose) },
+              { type: "text", text: "15 minutes" },
             ],
           },
           {
-            type: 'button',
-            sub_type: 'url',
-            index: '0',
-            parameters: [{ type: 'text', text: params.code }],
+            type: "button",
+            sub_type: "url",
+            index: "0",
+            parameters: [{ type: "text", text: params.code }],
           },
         ],
       },
     };
 
     const res = await fetch(`${this.baseUrl}/${this.phoneNumberId}/messages`, {
-      method:  'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${this.accessToken}`,
-        'Content-Type':  'application/json',
+        Authorization: `Bearer ${this.accessToken}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
     });
@@ -848,22 +925,23 @@ export class WhatsAppProvider {
     }
 
     const data = await res.json();
-    return data.messages?.[0]?.id ?? 'unknown';
+    return data.messages?.[0]?.id ?? "unknown";
   }
 
   private purposeLabel(purpose: string): string {
     const labels: Record<string, string> = {
-      phone_verify:        'verify your phone number',
-      password_reset:      'reset your password',
-      login_2fa:           'complete your login',
-      transaction_confirm: 'confirm your transaction',
+      phone_verify: "verify your phone number",
+      password_reset: "reset your password",
+      login_2fa: "complete your login",
+      transaction_confirm: "confirm your transaction",
     };
-    return labels[purpose] ?? 'complete your action';
+    return labels[purpose] ?? "complete your action";
   }
 }
 ```
 
 **WhatsApp OTP Template (to submit to Meta for approval):**
+
 ```
 Template name: boldmind_otp
 Category: AUTHENTICATION
@@ -883,33 +961,37 @@ Button: Copy Code → {{2}}
 // packages/sms/src/termii.provider.ts
 
 export class TermiiProvider {
-  private readonly baseUrl = 'https://v3.api.termii.com/api';
+  private readonly baseUrl = "https://v3.api.termii.com/api";
 
   constructor(
-    private readonly apiKey:   string,   // TERMII_API_KEY
-    private readonly senderId: string,   // "BOLDMIND" (NCC registered)
+    private readonly apiKey: string, // TERMII_API_KEY
+    private readonly senderId: string, // "BOLDMIND" (NCC registered)
   ) {}
 
-  async sendOTP(params: { to: string; code: string; purpose: string }): Promise<string> {
+  async sendOTP(params: {
+    to: string;
+    code: string;
+    purpose: string;
+  }): Promise<string> {
     const message = `Your BoldmindNG code is: ${params.code}. Expires in 15 mins. Do not share.`;
 
     const res = await fetch(`${this.baseUrl}/sms/send`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        to:        params.to,
-        from:      this.senderId,
-        sms:       message,
-        type:      'plain',
-        api_key:   this.apiKey,
-        channel:   'dnd',         // DND bypass channel for transactional messages
-        media:     {},
+        to: params.to,
+        from: this.senderId,
+        sms: message,
+        type: "plain",
+        api_key: this.apiKey,
+        channel: "dnd", // DND bypass channel for transactional messages
+        media: {},
       }),
     });
 
     const data = await res.json();
-    if (data.code !== 'ok') throw new Error(`Termii error: ${data.message}`);
-    return data.message_id ?? 'unknown';
+    if (data.code !== "ok") throw new Error(`Termii error: ${data.message}`);
+    return data.message_id ?? "unknown";
   }
 }
 ```
@@ -918,7 +1000,7 @@ export class TermiiProvider {
 
 ```typescript
 // src/modules/notification/notification.module.ts — add OTP provider
-import { OTPService, WhatsAppProvider, TermiiProvider } from '@boldmindng/sms';
+import { OTPService, WhatsAppProvider, TermiiProvider } from "@boldmindng/sms";
 
 // Use in auth.service.ts → sendOTP():
 // BEFORE (SMS only):
@@ -926,10 +1008,10 @@ await this.termii.send({ to: phone, message: `Your code: ${code}` });
 
 // AFTER (WhatsApp first, SMS fallback):
 const result = await this.otpService.send({
-  to:      phone,
-  code:    otp,
-  purpose: 'phone_verify',
-  name:    user.name.split(' ')[0],
+  to: phone,
+  code: otp,
+  purpose: "phone_verify",
+  name: user.name.split(" ")[0],
 });
 // Store result.channel in OTPVerification.metadata for debugging
 ```
@@ -972,23 +1054,23 @@ packages/wallet/
 
 ```typescript
 // packages/wallet/src/hooks/useWallet.ts
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 export function useWallet() {
   const client = useQueryClient();
 
   const balance = useQuery({
-    queryKey: ['wallet', 'balance'],
-    queryFn:  () => apiClient.get('/wallet'),
+    queryKey: ["wallet", "balance"],
+    queryFn: () => apiClient.get("/wallet"),
   });
 
   const ledger = useQuery({
-    queryKey: ['wallet', 'ledger'],
-    queryFn:  () => apiClient.get('/wallet/ledger'),
+    queryKey: ["wallet", "ledger"],
+    queryFn: () => apiClient.get("/wallet/ledger"),
   });
 
   // Refetch after any subscription payment or referral conversion
-  const invalidate = () => client.invalidateQueries({ queryKey: ['wallet'] });
+  const invalidate = () => client.invalidateQueries({ queryKey: ["wallet"] });
 
   return { balance, ledger, invalidate };
 }
@@ -1007,7 +1089,8 @@ packages/api-docs/
 └── scripts/
     └── generate.ts     ← pnpm run generate → outputs openapi.json + sdk-types.ts
 ```
-### 6.4  `packages/pwa` ✨
+
+### 6.4 `packages/pwa` ✨
 
 ```
 boldmind-shared/packages/pwa/
@@ -1028,6 +1111,7 @@ boldmind-shared/packages/pwa/
 ```
 
 **Package identity:**
+
 ```json
 {
   "name": "@boldmindng/pwa",
@@ -1042,20 +1126,21 @@ boldmind-shared/packages/pwa/
 
 **Full export contract:**
 
-| Export | File | Signature | Used in |
-|---|---|---|---|
-| `generateManifest` | `manifest.ts` | `(product: Product, opts?: { startUrl?: string, scope?: string }) => WebAppManifest` | Each app's `app/manifest.ts` (Next.js Metadata API) |
-| `registerServiceWorker` | `service-worker.ts` | `(swUrl = '/sw.js') => void` — client-side, no-op in dev | Root layout `'use client'` component |
-| `SW_TEMPLATE` | `sw-template.ts` | string template / build helper — produces `public/sw.js` per app | `turbo.json` `build:sw` task for apps with `twa` |
-| `cacheStrategies` | `offline-cache.ts` | `{ networkFirst(routes), cacheFirst(routes), staleWhileRevalidate(routes) }` | EduCenter (`cacheFirst`), AmeboGist (`staleWhileRevalidate`) |
-| `useInstallPrompt` | `install-prompt.tsx` | `() => { isInstallable, isInstalled, promptInstall: () => Promise<void> }` | `InstallPromptBanner` |
-| `InstallPromptBanner` | `install-prompt.tsx` | `{ productSlug: string, dismissible?: boolean }` | Re-exported via `@boldmindng/ui`, root layouts |
-| `subscribeToPush` | `push.ts` | `(vapidPublicKey: string) => Promise<PushSubscriptionJSON>` | Settings "Enable notifications" toggle |
-| `unsubscribeFromPush` | `push.ts` | `() => Promise<void>` | Settings "Disable notifications" |
-| `generateTwaConfig` | `twa.ts` | `(product: Product) => BubblewrapTwaManifest` | TWA build scripts for 4 products |
-| Types | `types.ts` | `WebAppManifest`, `BubblewrapTwaManifest`, `CacheStrategyConfig` | — |
+| Export                  | File                 | Signature                                                                            | Used in                                                      |
+| ----------------------- | -------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `generateManifest`      | `manifest.ts`        | `(product: Product, opts?: { startUrl?: string, scope?: string }) => WebAppManifest` | Each app's `app/manifest.ts` (Next.js Metadata API)          |
+| `registerServiceWorker` | `service-worker.ts`  | `(swUrl = '/sw.js') => void` — client-side, no-op in dev                             | Root layout `'use client'` component                         |
+| `SW_TEMPLATE`           | `sw-template.ts`     | string template / build helper — produces `public/sw.js` per app                     | `turbo.json` `build:sw` task for apps with `twa`             |
+| `cacheStrategies`       | `offline-cache.ts`   | `{ networkFirst(routes), cacheFirst(routes), staleWhileRevalidate(routes) }`         | EduCenter (`cacheFirst`), AmeboGist (`staleWhileRevalidate`) |
+| `useInstallPrompt`      | `install-prompt.tsx` | `() => { isInstallable, isInstalled, promptInstall: () => Promise<void> }`           | `InstallPromptBanner`                                        |
+| `InstallPromptBanner`   | `install-prompt.tsx` | `{ productSlug: string, dismissible?: boolean }`                                     | Re-exported via `@boldmindng/ui`, root layouts               |
+| `subscribeToPush`       | `push.ts`            | `(vapidPublicKey: string) => Promise<PushSubscriptionJSON>`                          | Settings "Enable notifications" toggle                       |
+| `unsubscribeFromPush`   | `push.ts`            | `() => Promise<void>`                                                                | Settings "Disable notifications"                             |
+| `generateTwaConfig`     | `twa.ts`             | `(product: Product) => BubblewrapTwaManifest`                                        | TWA build scripts for 4 products                             |
+| Types                   | `types.ts`           | `WebAppManifest`, `BubblewrapTwaManifest`, `CacheStrategyConfig`                     | —                                                            |
 
 **Rules:**
+
 - `generateManifest` must guard: only run for products where `product.twa !== undefined` — use `getProductsWithTWA()` from `@boldmindng/utils`
 - `registerServiceWorker` is a no-op in dev (`NODE_ENV !== 'production'`) — prevents stale-cache dev issues
 - `generateTwaConfig` output must be validated against Bubblewrap CLI schema before each TWA build
@@ -1064,6 +1149,7 @@ boldmind-shared/packages/pwa/
   - Frontend: `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (public only, for `subscribeToPush`)
 
 **TWA products (4 confirmed from products.ts `twa` field):**
+
 ```
 project-manager-twa   → ng.boldmind.projects   (boldmind.ng/projects)
 boldmind-fitness-twa  → ng.boldmind.fit         (boldmind.ng/fitness)
@@ -1093,41 +1179,44 @@ boldmind-shared/packages/deploy-config/
 
 **Full export contract:**
 
-| Export | File | Signature | Used in |
-|---|---|---|---|
-| `APP_ENV_SCHEMAS` | `env-schema.ts` | `Record<AppName, ZodSchema>` — one schema per app, listing all required env vars | CI validate step |
-| `validateEnv` | `env-schema.ts` | `(appName: AppName, env: Record<string, string \| undefined>) => { valid, missing, errors }` | Each app's `instrumentation.ts` `register()` hook — fails fast on misconfiguration |
-| `getCorsOrigins` | `cors.ts` | `() => string[]` — reads `FRONTEND_URLS`, splits on comma, falls back to `getAllDomains()` from products.ts | `boldmind-service` `main.ts` |
-| `DOMAIN_CONFIG` | `domains.ts` | `Record<CoreDomain, { app, vercelProject, envPrefix }>` — from `CORE_DOMAINS + getAllSubdomains()` | Deployment scripts, CI matrix |
-| `generateVercelConfig` | `vercel-config.ts` | `(appName: AppName) => VercelConfig` — SSO rewrites, security headers, legacy redirects | Each app's `vercel.json` (generated, not hand-written) |
-| `securityHeaders` | `security-headers.ts` | `() => HeaderEntry[]` — HSTS, X-Content-Type-Options, Referrer-Policy, CSP | `generateVercelConfig`, `next.config.mjs` `headers()` |
-| `createHealthCheckRoute` | `health-check.ts` | `() => RouteHandler` — `GET /api/health` → `{ status, app, uptime, version }` | Each app's `app/api/health/route.ts` |
-| Types | — | `AppName`, `VercelConfig`, `HeaderEntry` | — |
+| Export                   | File                  | Signature                                                                                                   | Used in                                                                            |
+| ------------------------ | --------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `APP_ENV_SCHEMAS`        | `env-schema.ts`       | `Record<AppName, ZodSchema>` — one schema per app, listing all required env vars                            | CI validate step                                                                   |
+| `validateEnv`            | `env-schema.ts`       | `(appName: AppName, env: Record<string, string \| undefined>) => { valid, missing, errors }`                | Each app's `instrumentation.ts` `register()` hook — fails fast on misconfiguration |
+| `getCorsOrigins`         | `cors.ts`             | `() => string[]` — reads `FRONTEND_URLS`, splits on comma, falls back to `getAllDomains()` from products.ts | `boldmind-service` `main.ts`                                                       |
+| `DOMAIN_CONFIG`          | `domains.ts`          | `Record<CoreDomain, { app, vercelProject, envPrefix }>` — from `CORE_DOMAINS + getAllSubdomains()`          | Deployment scripts, CI matrix                                                      |
+| `generateVercelConfig`   | `vercel-config.ts`    | `(appName: AppName) => VercelConfig` — SSO rewrites, security headers, legacy redirects                     | Each app's `vercel.json` (generated, not hand-written)                             |
+| `securityHeaders`        | `security-headers.ts` | `() => HeaderEntry[]` — HSTS, X-Content-Type-Options, Referrer-Policy, CSP                                  | `generateVercelConfig`, `next.config.mjs` `headers()`                              |
+| `createHealthCheckRoute` | `health-check.ts`     | `() => RouteHandler` — `GET /api/health` → `{ status, app, uptime, version }`                               | Each app's `app/api/health/route.ts`                                               |
+| Types                    | —                     | `AppName`, `VercelConfig`, `HeaderEntry`                                                                    | —                                                                                  |
 
 **`APP_ENV_SCHEMAS` apps covered:**
+
 ```typescript
 type AppName =
-  | 'boldmind-web'
-  | 'planai-suite'
-  | 'amebogist-web'
-  | 'educenter-web'
-  | 'villagecircle-web'
-  | 'boldmind-service'
-  | 'polymind-extension';
+  | "boldmind-web"
+  | "planai-suite"
+  | "amebogist-web"
+  | "educenter-web"
+  | "villagecircle-web"
+  | "boldmind-service"
+  | "polymind-extension";
 ```
 
 **CSP rules for `securityHeaders`:**
+
 - `connect-src`: must include `https://api.boldmind.ng`, Paystack endpoints, PostHog
 - Must NOT expose Redis/Upstash URLs (server-only)
 - `generateVercelConfig` rewrites must preserve `?sso_token=` query param — don't let Vercel strip it
 
 **Usage — each Next.js app `next.config.mjs`:**
+
 ```typescript
-import { securityHeaders } from '@boldmindng/deploy-config';
+import { securityHeaders } from "@boldmindng/deploy-config";
 
 const nextConfig = {
   async headers() {
-    return [{ source: '/(.*)', headers: securityHeaders() }];
+    return [{ source: "/(.*)", headers: securityHeaders() }];
   },
 };
 export default nextConfig;
@@ -1140,11 +1229,12 @@ export default nextConfig;
 ## 7. EduCenter — All Learning Verticals
 
 The existing `educenter-web` project tree shows these confirmed routes:
+
 ```
 app/(dashboard)/
 ├── business-school/page.tsx      ← exists
 ├── dashboard/page.tsx            ← exists
-├── study-hub/                    ← full exam 
+├── study-hub/                    ← full exam
 │   ├── page.tsx
 │   ├── history/page.tsx
 │   ├── leaderboard/page.tsx
@@ -1163,6 +1253,7 @@ The following verticals need to be **added** to this structure and documented:
 **What it is:** Course creators (teachers, trainers, businesses) build and sell courses.
 
 **New routes to add to educenter-web:**
+
 ```
 app/(dashboard)/lms/
 ├── page.tsx                        ← LMS dashboard (my courses + stats)
@@ -1176,6 +1267,7 @@ app/(dashboard)/lms/
 ```
 
 **NestJS — EduCenter module additions:**
+
 ```
 src/modules/educenter/
 ├── lms/
@@ -1185,6 +1277,7 @@ src/modules/educenter/
 ```
 
 **New API endpoints:**
+
 ```
 POST /api/v1/educenter/lms/courses                → create course
 GET  /api/v1/educenter/lms/courses                → list instructor's courses
@@ -1204,6 +1297,7 @@ GET  /api/v1/educenter/lms/courses/:id/earnings   → revenue breakdown (Paystac
 **What it is:** Licensed for schools at ₦500/student/term. Principals/admins manage their school's use of EduCenter.
 
 **New routes:**
+
 ```
 app/(dashboard)/school/
 ├── page.tsx                        ← School admin dashboard
@@ -1216,6 +1310,7 @@ app/(dashboard)/school/
 ```
 
 **NestJS — EduCenter module additions:**
+
 ```
 src/modules/educenter/
 ├── school/
@@ -1225,6 +1320,7 @@ src/modules/educenter/
 ```
 
 **New Prisma model (add to schema.prisma):**
+
 ```prisma
 model School {
   id             String   @id @default(cuid())
@@ -1251,6 +1347,7 @@ model School {
 ```
 
 **API endpoints:**
+
 ```
 POST /api/v1/educenter/schools/register        → school admin registers school
 GET  /api/v1/educenter/schools/me              → my school dashboard data
@@ -1265,12 +1362,14 @@ POST /api/v1/educenter/schools/me/assignments  → create assignment for a class
 **What it is:** LMS instructors provide a topic + audience → AI generates a complete course outline with lessons, quizzes, and a summary video script.
 
 **New routes:**
+
 ```
 app/(dashboard)/lms/generate/page.tsx       ← AI course generator form
 app/(dashboard)/lms/generate/result/page.tsx ← Generated course preview + "Save as Draft"
 ```
 
 **Flow:**
+
 1. Instructor fills form: `{ topic, targetAudience, level, numberOfModules, includeQuizzes }`
 2. POST `/api/v1/educenter/lms/generate` → queues AI job → returns `{ jobId }`
 3. Frontend polls `GET /api/v1/planai/social/jobs/:jobId` (reuses the PlanAI job pattern)
@@ -1278,6 +1377,7 @@ app/(dashboard)/lms/generate/result/page.tsx ← Generated course preview + "Sav
 5. Result shown as an editable preview — instructor can modify before saving
 
 **NestJS processor uses `ai-generation` queue with OpenAI GPT-4o:**
+
 ```
 System prompt: "You are an expert curriculum designer for Nigerian students and entrepreneurs.
 Generate a complete course structure in JSON format..."
@@ -1288,6 +1388,7 @@ Generate a complete course structure in JSON format..."
 **What it is:** `app/(dashboard)/business-school/page.tsx` already exists. This section defines its complete structure.
 
 **Routes (expand existing):**
+
 ```
 app/(dashboard)/business-school/
 ├── page.tsx                            ← Landing: featured playbooks + categories
@@ -1305,12 +1406,12 @@ app/(dashboard)/business-school/
 ```typescript
 // Public (no login required, read-only, first 6 of each):
 const PUBLIC_PLAYBOOK_SLUGS = [
-  'start-a-business-in-nigeria-2026',
-  'how-to-open-a-pos-agent',
-  'amazon-fba-from-nigeria',
-  'social-media-for-beginners',
-  'how-to-register-your-business-cac',
-  'side-hustles-that-pay-daily',
+  "start-a-business-in-nigeria-2026",
+  "how-to-open-a-pos-agent",
+  "amazon-fba-from-nigeria",
+  "social-media-for-beginners",
+  "how-to-register-your-business-cac",
+  "side-hustles-that-pay-daily",
 ];
 
 // Authenticated users see all playbooks (100+)
@@ -1324,23 +1425,24 @@ const PUBLIC_PLAYBOOK_SLUGS = [
 // Location: src/modules/educenter/schemas/prompt-template.schema.ts
 
 interface PromptTemplate {
-  slug:        string;          // e.g. "write-a-business-plan"
-  title:       string;
+  slug: string; // e.g. "write-a-business-plan"
+  title: string;
   description: string;
-  category:    string;          // "business" | "marketing" | "exam-prep" | "productivity"
-  template:    string;          // the prompt text with {{placeholders}}
-  variables:   string[];        // names of placeholders
-  isPublic:    boolean;         // true → visible without login
-  isPremium:   boolean;         // true → requires Pro subscription
-  usageCount:  number;
-  tags:        string[];
-  authorId?:   string;          // null for BoldmindNG official prompts
-  createdAt:   Date;
-  updatedAt:   Date;
+  category: string; // "business" | "marketing" | "exam-prep" | "productivity"
+  template: string; // the prompt text with {{placeholders}}
+  variables: string[]; // names of placeholders
+  isPublic: boolean; // true → visible without login
+  isPremium: boolean; // true → requires Pro subscription
+  usageCount: number;
+  tags: string[];
+  authorId?: string; // null for BoldmindNG official prompts
+  createdAt: Date;
+  updatedAt: Date;
 }
 ```
 
 **New API endpoints:**
+
 ```
 GET  /api/v1/educenter/prompts              → list (6 public without auth, all with auth)
 GET  /api/v1/educenter/prompts/:slug        → single prompt
@@ -1350,6 +1452,7 @@ GET  /api/v1/educenter/playbooks/:slug     → single playbook content
 ```
 
 **New routes for educenter-web:**
+
 ```
 app/
 ├── prompts/                            ← Public prompt library (6 shown, rest behind CTA)
@@ -1360,6 +1463,7 @@ app/
 ### 7.5 Vibe Coders Classroom
 
 **Already confirmed in villagecircle-web:**
+
 ```
 app/(vibe-coders)/vibe-coders/portal/
 ├── cohort/page.tsx           ← cohort overview
@@ -1379,12 +1483,14 @@ The Vibe Coders Classroom is the **protected learning environment** for enrolled
 **Curriculum data source:** `lib/vibe-coders/curriculum-data.ts` (confirmed in project tree — static data file, not API). This is intentional — curriculum is curated, not CMS-driven.
 
 **Session types:**
+
 1. **Self-paced modules** — video lessons from Cloudflare Stream + reading material
 2. **Live cohort sessions** — external Zoom/Meet link embedded + attendance log
 3. **Project submissions** — GitHub repo link + Loom video + written brief
 4. **Mentor 1:1s** — Calendly integration per mentor
 
 **New Prisma models (add to schema.prisma):**
+
 ```prisma
 model VibeCoderProjectSubmission {
   id          String   @id @default(cuid())
@@ -1421,6 +1527,7 @@ model VibeCoderAttendance {
 ```
 
 **New API endpoints (add to vibecoders.controller.ts):**
+
 ```
 GET  /api/v1/villagecircle/vibecoders/portal/curriculum        → curriculum with progress
 GET  /api/v1/villagecircle/vibecoders/portal/curriculum/:moduleId → module detail
@@ -1438,12 +1545,14 @@ GET  /api/v1/villagecircle/vibecoders/portal/mentors           → mentor direct
 ### 8.1 What It Is
 
 BoldmindNG exposes selected APIs for:
+
 1. **Enterprise clients** — companies integrating BoldmindNG tools (e.g. a bank wanting EduCenter exam prep for their customers)
 2. **Third-party developers** — building on top of AmeboGist content, PlanAI tools, or EduCenter questions
 
 ### 8.2 Repo Changes
 
 **boldmind-service** gets a new module:
+
 ```
 src/modules/api/
 ├── api.module.ts
@@ -1459,6 +1568,7 @@ src/modules/api/
 ```
 
 **New Prisma model:**
+
 ```prisma
 model ApiKey {
   id          String    @id @default(cuid())
@@ -1490,17 +1600,18 @@ enum ApiTier {
 ```
 
 **Available API scopes:**
+
 ```typescript
 export const API_SCOPES = {
-  'amebogist:read':          'Read published articles and categories',
-  'educenter:questions':     'Fetch exam questions (JAMB/WAEC/NECO)',
-  'educenter:submit':        'Submit quiz attempts on behalf of students',
-  'planai:social:generate':  'Generate social media captions',
-  'planai:branding:logo':    'Generate logos',
-  'villagecircle:waitlist':  'Add emails to concept waitlists',
-  'users:profile:read':      'Read authenticated user profile',
-  'payments:verify':         'Verify payment status by reference',
-  'webhook:subscribe':       'Subscribe to BoldmindNG webhook events',
+  "amebogist:read": "Read published articles and categories",
+  "educenter:questions": "Fetch exam questions (JAMB/WAEC/NECO)",
+  "educenter:submit": "Submit quiz attempts on behalf of students",
+  "planai:social:generate": "Generate social media captions",
+  "planai:branding:logo": "Generate logos",
+  "villagecircle:waitlist": "Add emails to concept waitlists",
+  "users:profile:read": "Read authenticated user profile",
+  "payments:verify": "Verify payment status by reference",
+  "webhook:subscribe": "Subscribe to BoldmindNG webhook events",
 } as const;
 ```
 
@@ -1518,10 +1629,10 @@ export class ApiKeyGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
-    const rawKey = req.headers['x-api-key'] as string;
+    const rawKey = req.headers["x-api-key"] as string;
 
-    if (!rawKey || !rawKey.startsWith('bm_')) {
-      throw new UnauthorizedException('Valid X-API-Key header required');
+    if (!rawKey || !rawKey.startsWith("bm_")) {
+      throw new UnauthorizedException("Valid X-API-Key header required");
     }
 
     // Rate check via Redis (sliding window)
@@ -1538,28 +1649,35 @@ export class ApiKeyGuard implements CanActivate {
     if (cached) {
       keyRecord = JSON.parse(cached);
     } else {
-      const keyHash = createHash('sha256').update(rawKey).digest('hex');
-      keyRecord = await this.prisma.apiKey.findUniqueOrThrow({ where: { keyHash } });
+      const keyHash = createHash("sha256").update(rawKey).digest("hex");
+      keyRecord = await this.prisma.apiKey.findUniqueOrThrow({
+        where: { keyHash },
+      });
       await this.redis.cache.setex(cacheKey, 300, JSON.stringify(keyRecord)); // 5-min cache
     }
 
-    if (!keyRecord.isActive) throw new UnauthorizedException('API key revoked');
+    if (!keyRecord.isActive) throw new UnauthorizedException("API key revoked");
     if (keyRecord.expiresAt && keyRecord.expiresAt < new Date()) {
-      throw new UnauthorizedException('API key expired');
+      throw new UnauthorizedException("API key expired");
     }
     if (count > keyRecord.rateLimit) {
-      throw new HttpException('Rate limit exceeded', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        "Rate limit exceeded",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     // Attach key metadata to request for scope checking in controllers
-    req['apiKey'] = keyRecord;
-    req['apiKeyUserId'] = keyRecord.userId;
+    req["apiKey"] = keyRecord;
+    req["apiKeyUserId"] = keyRecord.userId;
 
     // Update lastUsedAt (fire-and-forget, don't await)
-    this.prisma.apiKey.update({
-      where: { id: keyRecord.id },
-      data:  { lastUsedAt: new Date() },
-    }).catch(() => null);
+    this.prisma.apiKey
+      .update({
+        where: { id: keyRecord.id },
+        data: { lastUsedAt: new Date() },
+      })
+      .catch(() => null);
 
     return true;
   }
@@ -1611,6 +1729,7 @@ DELETE /api/v1/developer/webhooks/:id    → unsubscribe
 **New repo or page within boldmind-web:**
 
 Option A (recommended): Add to `boldmind-web`:
+
 ```
 app/(public)/developers/
 ├── page.tsx                    ← Developer portal landing
@@ -1647,9 +1766,54 @@ pnpm changeset publish
 
 **Each package has its own CHANGELOG.md** (confirmed from tree: `packages/analytics/CHANGELOG.md`, `packages/auth/CHANGELOG.md`, etc.)
 
+**Merged from addendum §M — exact workflow with CI triggers:**
+
+```bash
+# 1. Make changes to any package(s)
+
+# 2. Create a changeset describing what changed:
+pnpm changeset
+# → Prompts: which packages changed? major/minor/patch? summary?
+# → Creates .changeset/<random-name>.md
+
+# 3. In CI or before release — bump versions:
+pnpm changeset version
+# → Reads all .changeset/*.md files
+# → Bumps package.json versions accordingly
+# → Updates each package's CHANGELOG.md
+# → Deletes the .changeset/*.md files
+
+# 4. Publish to GitHub Packages:
+pnpm changeset publish
+# → Runs `pnpm build` per changed package
+# → Runs `pnpm publish --no-git-checks`
+# → Tags the release in git
+
+# CI triggers (`.github/workflows/release.yml`):
+# - On merge to main → run `pnpm changeset version` + commit
+# - On release tag → run `pnpm changeset publish`
+```
+
+**Each `CHANGELOG.md` entry must reference which `BOLDMIND_PRODUCTS` slugs were affected** —
+this lets `packages/api-docs/src/changelog.ts` deep-link entries to affected product pages on
+the `/changelog` page in `boldmind-web`:
+
+```markdown
+## 0.3.0 — 2026-06-14
+
+### Minor Changes
+
+- `@boldmindng/api-client`: Added `wallet.api.ts` and `developer.api.ts`
+  - Products affected: `boldmind-hub`, `planai`
+
+- `@boldmindng/sms`: Added `WhatsAppProvider` for OTP primary delivery
+  - Products affected: all (auth flows)
+```
+
 ### 9.2 Public Changelog Page
 
 **Add to boldmind-web:**
+
 ```
 app/(public)/changelog/
 ├── page.tsx                    ← Full changelog (aggregated from all packages + backend)
@@ -1659,22 +1823,24 @@ app/(public)/changelog/
 **Data source:** `packages/api-docs/src/changelog.ts` reads all `CHANGELOG.md` files and produces structured JSON. The changelog page is a static RSC (`revalidate: 3600`).
 
 **Changelog entry shape:**
+
 ```typescript
 interface ChangelogEntry {
-  version:     string;
-  date:        string;
-  packages:    string[];       // which packages changed
-  type:        'major' | 'minor' | 'patch';
-  summary:     string;         // first line of changeset description
-  highlights:  string[];       // bullet points
-  breaking?:   string[];       // breaking changes if major
-  products?:   string[];       // which BOLDMIND_PRODUCTS are affected
+  version: string;
+  date: string;
+  packages: string[]; // which packages changed
+  type: "major" | "minor" | "patch";
+  summary: string; // first line of changeset description
+  highlights: string[]; // bullet points
+  breaking?: string[]; // breaking changes if major
+  products?: string[]; // which BOLDMIND_PRODUCTS are affected
 }
 ```
 
 ### 9.3 System Status Page
 
 **Add to boldmind-web:**
+
 ```
 app/(public)/status/page.tsx    ← Uptime + incident history
 ```
@@ -1687,10 +1853,10 @@ app/(public)/status/page.tsx    ← Uptime + incident history
 
 ### 10.1 Overview
 
-**Extension name:** Boldmind PolyMind — Multi-Model AI Comparator  
-**Purpose:** User submits one prompt → sees side-by-side responses from multiple AI models simultaneously  
-**Manifest:** V3  
-**New repo:** `polymind-extension` (separate from all 7 existing repos)  
+**Extension name:** Boldmind PolyMind — Multi-Model AI Comparator
+**Purpose:** User submits one prompt → sees side-by-side responses from multiple AI models simultaneously
+**Manifest:** V3
+**New repo:** `polymind-extension` (separate from all 7 existing repos)
 **Auth:** Uses BoldmindNG API key (from `GET /api/v1/developer/keys`) — NOT the SSO JWT (extensions can't rely on SSO cookies)
 
 ### 10.2 Repository Structure
@@ -1744,9 +1910,9 @@ polymind-extension/
   "version": "1.0.0",
   "description": "Compare AI model responses side-by-side. One prompt, all models.",
   "icons": {
-    "16":  "src/assets/icon-16.png",
-    "32":  "src/assets/icon-32.png",
-    "48":  "src/assets/icon-48.png",
+    "16": "src/assets/icon-16.png",
+    "32": "src/assets/icon-32.png",
+    "48": "src/assets/icon-48.png",
     "128": "src/assets/icon-128.png"
   },
   "action": {
@@ -1760,20 +1926,13 @@ polymind-extension/
     "service_worker": "src/background/service-worker.ts",
     "type": "module"
   },
-  "permissions": [
-    "storage",
-    "sidePanel",
-    "contextMenus",
-    "activeTab"
-  ],
-  "host_permissions": [
-    "https://api.boldmind.ng/*"
-  ],
+  "permissions": ["storage", "sidePanel", "contextMenus", "activeTab"],
+  "host_permissions": ["https://api.boldmind.ng/*"],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js":      ["src/content/content.ts"],
-      "run_at":  "document_idle"
+      "js": ["src/content/content.ts"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -1791,72 +1950,72 @@ polymind-extension/
 // src/lib/models.ts
 
 export interface ModelDefinition {
-  id:          string;
-  name:        string;
-  provider:    string;
-  icon:        string;    // emoji or CDN icon URL
-  color:       string;    // brand color for the card
+  id: string;
+  name: string;
+  provider: string;
+  icon: string; // emoji or CDN icon URL
+  color: string; // brand color for the card
   description: string;
-  maxTokens:   number;
-  isDefault:   boolean;
-  apiEndpoint: string;    // boldmind-service route that proxies to this model
+  maxTokens: number;
+  isDefault: boolean;
+  apiEndpoint: string; // boldmind-service route that proxies to this model
 }
 
 export const POLYMIND_MODELS: ModelDefinition[] = [
   {
-    id:          'gpt-4o',
-    name:        'GPT-4o',
-    provider:    'OpenAI',
-    icon:        '🟢',
-    color:       '#10A37F',
-    description: 'OpenAI flagship — best for nuanced reasoning',
-    maxTokens:   4096,
-    isDefault:   true,
-    apiEndpoint: '/api/v1/polymind/openai',
+    id: "gpt-4o",
+    name: "GPT-4o",
+    provider: "OpenAI",
+    icon: "🟢",
+    color: "#10A37F",
+    description: "OpenAI flagship — best for nuanced reasoning",
+    maxTokens: 4096,
+    isDefault: true,
+    apiEndpoint: "/api/v1/polymind/openai",
   },
   {
-    id:          'claude-sonnet',
-    name:        'Claude Sonnet',
-    provider:    'Anthropic',
-    icon:        '🟠',
-    color:       '#D97706',
-    description: 'Anthropic — exceptional at analysis and writing',
-    maxTokens:   4096,
-    isDefault:   true,
-    apiEndpoint: '/api/v1/polymind/claude',
+    id: "claude-sonnet",
+    name: "Claude Sonnet",
+    provider: "Anthropic",
+    icon: "🟠",
+    color: "#D97706",
+    description: "Anthropic — exceptional at analysis and writing",
+    maxTokens: 4096,
+    isDefault: true,
+    apiEndpoint: "/api/v1/polymind/claude",
   },
   {
-    id:          'gemini-pro',
-    name:        'Gemini Pro',
-    provider:    'Google',
-    icon:        '🔵',
-    color:       '#4285F4',
-    description: 'Google Gemini — strong at factual queries',
-    maxTokens:   4096,
-    isDefault:   false,
-    apiEndpoint: '/api/v1/polymind/gemini',
+    id: "gemini-pro",
+    name: "Gemini Pro",
+    provider: "Google",
+    icon: "🔵",
+    color: "#4285F4",
+    description: "Google Gemini — strong at factual queries",
+    maxTokens: 4096,
+    isDefault: false,
+    apiEndpoint: "/api/v1/polymind/gemini",
   },
   {
-    id:          'llama-3.1',
-    name:        'LLaMA 3.1 70B',
-    provider:    'Meta / Groq',
-    icon:        '⚫',
-    color:       '#374151',
-    description: 'Open-source via Groq — blazing fast inference',
-    maxTokens:   4096,
-    isDefault:   false,
-    apiEndpoint: '/api/v1/polymind/groq',
+    id: "llama-3.1",
+    name: "LLaMA 3.1 70B",
+    provider: "Meta / Groq",
+    icon: "⚫",
+    color: "#374151",
+    description: "Open-source via Groq — blazing fast inference",
+    maxTokens: 4096,
+    isDefault: false,
+    apiEndpoint: "/api/v1/polymind/groq",
   },
   {
-    id:          'mistral',
-    name:        'Mistral Large',
-    provider:    'Mistral AI',
-    icon:        '🟣',
-    color:       '#7C3AED',
-    description: 'European AI — strong multilingual + code',
-    maxTokens:   4096,
-    isDefault:   false,
-    apiEndpoint: '/api/v1/polymind/mistral',
+    id: "mistral",
+    name: "Mistral Large",
+    provider: "Mistral AI",
+    icon: "🟣",
+    color: "#7C3AED",
+    description: "European AI — strong multilingual + code",
+    maxTokens: 4096,
+    isDefault: false,
+    apiEndpoint: "/api/v1/polymind/mistral",
   },
 ];
 ```
@@ -1864,11 +2023,13 @@ export const POLYMIND_MODELS: ModelDefinition[] = [
 ### 10.5 Architecture: Proxy Through boldmind-service
 
 The extension does NOT call OpenAI/Anthropic/Google directly. All calls go through `api.boldmind.ng/api/v1/polymind/*`. This:
+
 - Keeps API keys server-side (never in extension bundle)
 - Allows rate limiting per BoldmindNG API key
 - Enables usage tracking + billing for PolyMind Pro tier
 
 **New NestJS module needed:**
+
 ```
 src/modules/polymind/
 ├── polymind.module.ts
@@ -1931,18 +2092,18 @@ Context Menu:
   "packageManager": "pnpm@10.34.1",
   "engines": { "node": ">=22.22.3" },
   "scripts": {
-    "dev":   "vite dev",
+    "dev": "vite dev",
     "build": "vite build",
-    "pack":  "vite build && cd dist && zip -r ../polymind.zip ."
+    "pack": "vite build && cd dist && zip -r ../polymind.zip ."
   },
   "dependencies": {
-    "react":        "19.2.x",
-    "react-dom":    "19.2.x"
+    "react": "19.2.x",
+    "react-dom": "19.2.x"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.x",
-    "vite":               "^5.x",
-    "typescript":         "^5.x"
+    "vite": "^5.x",
+    "typescript": "^5.x"
   }
 }
 ```
@@ -2188,6 +2349,7 @@ model AffiliateEarning {
 ```
 
 **Relations to add to existing `User` model:**
+
 ```prisma
 // Add to existing User model:
   wallet              Wallet?
@@ -2210,19 +2372,19 @@ Reference the existing schemas in `src/modules/` — these are ADDENDUMS only.
 ```typescript
 // src/modules/educenter/schemas/prompt-template.schema.ts
 
-@Schema({ timestamps: true, collection: 'prompt_templates' })
+@Schema({ timestamps: true, collection: "prompt_templates" })
 export class PromptTemplate {
   @Prop({ required: true, unique: true }) slug: string;
-  @Prop({ required: true })               title: string;
-  @Prop({ required: true })               description: string;
-  @Prop({ required: true })               category: string; // business|marketing|exam-prep|productivity
-  @Prop({ required: true })               template: string; // with {{placeholders}}
-  @Prop({ type: [String] })               variables: string[];
-  @Prop({ default: false })               isPublic: boolean;
-  @Prop({ default: false })               isPremium: boolean;
-  @Prop({ default: 0 })                   usageCount: number;
-  @Prop({ type: [String] })               tags: string[];
-  @Prop()                                  authorId?: string;
+  @Prop({ required: true }) title: string;
+  @Prop({ required: true }) description: string;
+  @Prop({ required: true }) category: string; // business|marketing|exam-prep|productivity
+  @Prop({ required: true }) template: string; // with {{placeholders}}
+  @Prop({ type: [String] }) variables: string[];
+  @Prop({ default: false }) isPublic: boolean;
+  @Prop({ default: false }) isPremium: boolean;
+  @Prop({ default: 0 }) usageCount: number;
+  @Prop({ type: [String] }) tags: string[];
+  @Prop() authorId?: string;
 }
 ```
 
@@ -2231,22 +2393,22 @@ export class PromptTemplate {
 ```typescript
 // src/modules/educenter/schemas/playbook.schema.ts
 
-@Schema({ timestamps: true, collection: 'playbooks' })
+@Schema({ timestamps: true, collection: "playbooks" })
 export class Playbook {
   @Prop({ required: true, unique: true }) slug: string;
-  @Prop({ required: true })               title: string;
-  @Prop({ required: true })               description: string;
-  @Prop({ required: true })               category: string;
-  @Prop()                                  thumbnailUrl: string;
-  @Prop({ default: false })               isPublic: boolean;   // true → visible without login
-  @Prop({ default: false })               isPremium: boolean;  // true → Pro sub required
-  @Prop({ required: true })               content: string;     // rich HTML/MDX
-  @Prop({ type: Object })                 sections: Array<{ heading: string; body: string }>;
-  @Prop({ type: [String] })               tags: string[];
-  @Prop({ default: 0 })                   viewCount: number;
-  @Prop({ default: 0 })                   downloadCount: number;
-  @Prop()                                  authorId?: string;
-  @Prop()                                  publishedAt?: Date;
+  @Prop({ required: true }) title: string;
+  @Prop({ required: true }) description: string;
+  @Prop({ required: true }) category: string;
+  @Prop() thumbnailUrl: string;
+  @Prop({ default: false }) isPublic: boolean; // true → visible without login
+  @Prop({ default: false }) isPremium: boolean; // true → Pro sub required
+  @Prop({ required: true }) content: string; // rich HTML/MDX
+  @Prop({ type: Object }) sections: Array<{ heading: string; body: string }>;
+  @Prop({ type: [String] }) tags: string[];
+  @Prop({ default: 0 }) viewCount: number;
+  @Prop({ default: 0 }) downloadCount: number;
+  @Prop() authorId?: string;
+  @Prop() publishedAt?: Date;
 }
 ```
 
@@ -2256,21 +2418,21 @@ export class Playbook {
 // src/modules/polymind/schemas/comparison.schema.ts
 // Stored in MongoDB (high-write, semi-structured)
 
-@Schema({ timestamps: true, collection: 'polymind_comparisons' })
+@Schema({ timestamps: true, collection: "polymind_comparisons" })
 export class PolyMindComparison {
-  @Prop({ required: true })  userId: string;         // or apiKeyId for extension
-  @Prop({ required: true })  prompt: string;
-  @Prop()                     systemPrompt?: string;
-  @Prop({ type: [Object] })  responses: Array<{
-    modelId:    string;
-    content:    string;
+  @Prop({ required: true }) userId: string; // or apiKeyId for extension
+  @Prop({ required: true }) prompt: string;
+  @Prop() systemPrompt?: string;
+  @Prop({ type: [Object] }) responses: Array<{
+    modelId: string;
+    content: string;
     tokensUsed: number;
-    latencyMs:  number;
-    error?:     string;
+    latencyMs: number;
+    error?: string;
   }>;
-  @Prop({ type: Object })    userRatings: Record<string, number>; // modelId → 1|0
-  @Prop({ type: [String] })  savedModels: string[];  // which responses user saved
-  @Prop({ default: 'web' })  source: string;         // 'extension' | 'web' | 'api'
+  @Prop({ type: Object }) userRatings: Record<string, number>; // modelId → 1|0
+  @Prop({ type: [String] }) savedModels: string[]; // which responses user saved
+  @Prop({ default: "web" }) source: string; // 'extension' | 'web' | 'api'
 }
 ```
 
@@ -2279,17 +2441,17 @@ export class PolyMindComparison {
 ```typescript
 // src/modules/api/schemas/webhook-delivery.schema.ts
 
-@Schema({ timestamps: true, collection: 'webhook_deliveries' })
+@Schema({ timestamps: true, collection: "webhook_deliveries" })
 export class WebhookDelivery {
   @Prop({ required: true }) subscriptionId: string;
   @Prop({ required: true }) event: string;
-  @Prop({ type: Object })   payload: Record<string, any>;
-  @Prop({ required: true }) status: string;    // 'pending' | 'delivered' | 'failed'
-  @Prop()                    responseCode?: number;
-  @Prop()                    responseBody?: string;
-  @Prop({ default: 0 })     attempts: number;
-  @Prop()                    nextRetryAt?: Date;
-  @Prop()                    deliveredAt?: Date;
+  @Prop({ type: Object }) payload: Record<string, any>;
+  @Prop({ required: true }) status: string; // 'pending' | 'delivered' | 'failed'
+  @Prop() responseCode?: number;
+  @Prop() responseBody?: string;
+  @Prop({ default: 0 }) attempts: number;
+  @Prop() nextRetryAt?: Date;
+  @Prop() deliveredAt?: Date;
 }
 ```
 
@@ -2299,23 +2461,23 @@ export class WebhookDelivery {
 
 Using **REDIS_QUEUE** instance for all BullMQ queues.
 
-| Queue | Processor File | Priority | Retries | Notes |
-|---|---|---|---|---|
-| `email-notifications` | `automation/queue/email-campaign.processor.ts` | Normal | 3× exp | Via Resend |
-| `sms-otp` | `notification/notification.service.ts` | High | 2× | WhatsApp→SMS fallback |
-| `social-publishing` | `automation/queue/social-post.processor.ts` | Normal | 2× | Delayed jobs |
-| `ai-generation` | `automation/queue/ai-jobs.processor.ts` | Normal | 2× | Provider fallback |
-| `image-generation` | `ai/processors/social-factory.processor.ts` | Normal | 1× | fal.ai → DALL-E |
-| `payroll-processing` | `planai/processors/planai.processor.ts` | High | 0 | Idempotent |
-| `media-processing` | `media/media.service.ts` | Normal | 2× | R2 upload + scan |
-| `payment-webhook` | `payment/payment.service.ts` | Critical | 5× 10s | Paystack retries 72hr |
-| `wallet-credit` | `wallet/wallet.service.ts` | High | 3× | Must succeed |
-| `trend-analysis` | `ai/services/trend.service.ts` | Low | 1× | Cron: every 2h |
-| `kolo-reminders` | `villagecircle/kolo-ai/kolo-ai.service.ts` | Normal | 1× | WhatsApp reminders |
-| `polymind-query` | `polymind/polymind.service.ts` | Normal | 1× | Fan-out AI calls |
-| `webhook-delivery` | `api/webhook-delivery.service.ts` | Normal | 3× exp | Enterprise webhooks |
-| `ndpa-erasure` | `user/user.service.ts` | Low | 0 | Cron: daily |
-| `seo-sitemap` | `amebogist/rss.service.ts` | Low | 0 | Cron: nightly |
+| Queue                 | Processor File                                 | Priority | Retries | Notes                 |
+| --------------------- | ---------------------------------------------- | -------- | ------- | --------------------- |
+| `email-notifications` | `automation/queue/email-campaign.processor.ts` | Normal   | 3× exp  | Via Resend            |
+| `sms-otp`             | `notification/notification.service.ts`         | High     | 2×      | WhatsApp→SMS fallback |
+| `social-publishing`   | `automation/queue/social-post.processor.ts`    | Normal   | 2×      | Delayed jobs          |
+| `ai-generation`       | `automation/queue/ai-jobs.processor.ts`        | Normal   | 2×      | Provider fallback     |
+| `image-generation`    | `ai/processors/social-factory.processor.ts`    | Normal   | 1×      | fal.ai → DALL-E       |
+| `payroll-processing`  | `planai/processors/planai.processor.ts`        | High     | 0       | Idempotent            |
+| `media-processing`    | `media/media.service.ts`                       | Normal   | 2×      | R2 upload + scan      |
+| `payment-webhook`     | `payment/payment.service.ts`                   | Critical | 5× 10s  | Paystack retries 72hr |
+| `wallet-credit`       | `wallet/wallet.service.ts`                     | High     | 3×      | Must succeed          |
+| `trend-analysis`      | `ai/services/trend.service.ts`                 | Low      | 1×      | Cron: every 2h        |
+| `kolo-reminders`      | `villagecircle/kolo-ai/kolo-ai.service.ts`     | Normal   | 1×      | WhatsApp reminders    |
+| `polymind-query`      | `polymind/polymind.service.ts`                 | Normal   | 1×      | Fan-out AI calls      |
+| `webhook-delivery`    | `api/webhook-delivery.service.ts`              | Normal   | 3× exp  | Enterprise webhooks   |
+| `ndpa-erasure`        | `user/user.service.ts`                         | Low      | 0       | Cron: daily           |
+| `seo-sitemap`         | `amebogist/rss.service.ts`                     | Low      | 0       | Cron: nightly         |
 
 **New queue: `sms-otp`**
 
@@ -2324,11 +2486,11 @@ Using **REDIS_QUEUE** instance for all BullMQ queues.
 
 // Job payload:
 interface OTPJobPayload {
-  to:      string;   // E.164 phone
-  code:    string;   // 6 digits
+  to: string; // E.164 phone
+  code: string; // 6 digits
   purpose: OTPPurpose;
-  name?:   string;
-  userId?: string;   // for logging
+  name?: string;
+  userId?: string; // for logging
 }
 
 // Processor:
@@ -2338,11 +2500,75 @@ interface OTPJobPayload {
 // 4. If both fail: send email OTP (only for email_verify purpose)
 ```
 
+### 13.1 Complete `queues.ts` Constants File
+
+> **Merged from addendum §E.** This is the full, typed replacement for
+> `src/common/constants/queues.ts` — it supersedes the table above as the source of truth
+> for exact queue name strings and adds `POLYMIND_QUERY` and `WEBHOOK_DELIVERY`, which the
+> original v2 table implied but never named explicitly.
+
+```typescript
+// boldmind-service/src/common/constants/queues.ts — FULL FILE
+
+export const QUEUES = {
+  // ── Communication ──────────────────────────────────────────────
+  EMAIL_NOTIFICATIONS: "email-notifications", // Via Resend, 3× exp retry
+  SMS_OTP: "sms-otp", // WhatsApp → SMS fallback, HIGH priority
+
+  // ── Content & Social ───────────────────────────────────────────
+  SOCIAL_PUBLISHING: "social-publishing", // Delayed BullMQ jobs
+  AI_GENERATION: "ai-generation", // Provider fallback chain
+  IMAGE_GENERATION: "image-generation", // fal.ai → DALL-E fallback
+
+  // ── Business Operations ────────────────────────────────────────
+  PAYROLL_PROCESSING: "payroll-processing", // Idempotent, HIGH, 0 retries
+  MEDIA_PROCESSING: "media-processing", // R2 upload + virus scan
+
+  // ── Payments & Wallet ──────────────────────────────────────────
+  PAYMENT_WEBHOOK: "payment-webhook", // CRITICAL, 5× with 10s backoff
+  WALLET_CREDIT: "wallet-credit", // HIGH, must never fail, 3× retry
+
+  // ── Background Intelligence ────────────────────────────────────
+  TREND_ANALYSIS: "trend-analysis", // Cron every 2h, LOW priority
+  KOLO_REMINDERS: "kolo-reminders", // WhatsApp reminders
+
+  // ── Enterprise & Extensions ────────────────────────────────────
+  POLYMIND_QUERY: "polymind-query", // PolyMind fan-out AI calls
+  WEBHOOK_DELIVERY: "webhook-delivery", // Enterprise webhook delivery, 3× exp
+
+  // ── Data Hygiene ───────────────────────────────────────────────
+  NDPA_ERASURE: "ndpa-erasure", // Cron: daily midnight Lagos, 0 retries
+  SEO_SITEMAP: "seo-sitemap", // Cron: nightly, 0 retries
+} as const;
+
+export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
+
+// Priority: 1 = highest, 10 = lowest (BullMQ convention)
+export const QUEUE_PRIORITIES: Record<QueueName, number> = {
+  [QUEUES.PAYMENT_WEBHOOK]: 1, // Critical — never delay Paystack
+  [QUEUES.WALLET_CREDIT]: 2, // High — financial integrity
+  [QUEUES.SMS_OTP]: 2, // High — user is waiting
+  [QUEUES.PAYROLL_PROCESSING]: 3, // High — time-sensitive
+  [QUEUES.EMAIL_NOTIFICATIONS]: 5, // Normal
+  [QUEUES.SOCIAL_PUBLISHING]: 5, // Normal (may be delayed jobs)
+  [QUEUES.AI_GENERATION]: 5, // Normal
+  [QUEUES.IMAGE_GENERATION]: 5, // Normal
+  [QUEUES.MEDIA_PROCESSING]: 5, // Normal
+  [QUEUES.KOLO_REMINDERS]: 5, // Normal
+  [QUEUES.POLYMIND_QUERY]: 5, // Normal
+  [QUEUES.WEBHOOK_DELIVERY]: 5, // Normal
+  [QUEUES.TREND_ANALYSIS]: 8, // Low
+  [QUEUES.SEO_SITEMAP]: 9, // Low
+  [QUEUES.NDPA_ERASURE]: 9, // Low
+};
+```
+
 ---
 
 ## 14. Migration Wave Update
 
 ### Wave 0 — Redis Split (IMMEDIATE — do before any other migration)
+
 1. Provision 3 Redis instances (Upstash free tier: 3 databases per account)
 2. Update `src/database/redis.service.ts` to `RedisService` with 3 connections (see Section 3.2)
 3. Update `src/app.module.ts` BullMQ config to use `redis.queue`
@@ -2350,6 +2576,7 @@ interface OTPJobPayload {
 5. Deploy → verify BullMQ workers still process jobs
 
 ### Wave 1 — Foundation Data Models (weeks 1–3)
+
 6. Prisma migration: add `Wallet`, `WalletLedger`, `WalletTier`, `WalletEntryType`, `WalletSource` enums
 7. Prisma migration: add `Referral`, `AffiliateEarning`
 8. Prisma migration: add `ApiKey`, `ApiTier`, `WebhookSubscription`
@@ -2361,6 +2588,7 @@ interface OTPJobPayload {
 14. Update `auth.service.ts` sendOTP to use `packages/sms` OTPService
 
 ### Wave 2 — PlanAI Completion (weeks 3–7)
+
 15. CRM full CRUD + WhatsApp sync (CRMContact, CRMInteraction already in schema)
 16. HR & Payroll full flow (HREmployee, Payslip, LeaveRequest already in schema)
 17. AI Business Agent (OpenAI Assistants API + BullMQ)
@@ -2368,6 +2596,7 @@ interface OTPJobPayload {
 19. Marketplace full escrow (Paystack split payments)
 
 ### Wave 3 — Education Platform (weeks 5–9)
+
 20. LMS Builder routes + API (uses existing Course/CourseLesson/CourseEnrollment models)
 21. AI Course Generator job (queues to `ai-generation`)
 22. School Management Portal (new `School` model)
@@ -2376,6 +2605,7 @@ interface OTPJobPayload {
 25. Vibe Coders Classroom API (project submissions + attendance)
 
 ### Wave 4 — Enterprise API & PolyMind (weeks 8–12)
+
 26. `src/modules/api/` (ApiKey guard, enterprise endpoints, webhook delivery)
 27. `packages/api-docs` (OpenAPI spec generation)
 28. Developer portal pages in boldmind-web
@@ -2385,6 +2615,7 @@ interface OTPJobPayload {
 32. Submit PolyMind to Chrome Web Store
 
 ### Wave 5 — VillageCircle Concepts (weeks 10–16)
+
 33. KoloAI → BUILDING (model + API + WhatsApp reminders)
 34. ReceiptGenius VAT receipts (PDF + WhatsApp delivery)
 35. BorderlessRemit rate aggregation
@@ -2392,6 +2623,7 @@ interface OTPJobPayload {
 37. FarmGate produce listings + GIG Logistics
 
 ### Wave 6 — Platform Hardening (ongoing)
+
 38. PgBouncer in front of Neon PostgreSQL
 39. Full NDPA erasure pipeline (ndpa-erasure cron job)
 40. PostHog session replays enabled
@@ -2602,41 +2834,38 @@ Use this checklist for EVERY code generation task, PR, scaffold, or AI-generated
 
 ---
 
-*BoldmindNG System Design v2.0 | June 2026*
-*Next review trigger: Any change to products.ts, pricing.ts, colors.ts, or schema.prisma*
-*Always attach project tree files when generating code for any repo*
-
-
-
+_BoldmindNG System Design v2.0 | June 2026_
+_Next review trigger: Any change to products.ts, pricing.ts, colors.ts, or schema.prisma_
+_Always attach project tree files when generating code for any repo_
 
 ### Current State vs Required State
 
-| File | Status | Notes |
-|---|---|---|
-| `src/admin.api.ts` | ✅ Exists | Covers admin endpoints §4.16 |
-| `src/amebogist.api.ts` | ✅ Exists | Covers §4.12 |
-| `src/analytics.api.ts` | ✅ Exists | Covers §4.9 |
-| `src/auth.api.ts` | ✅ Exists | Covers §4.1 + §4.2 |
-| `src/automation.api.ts` | ✅ Exists | Covers §4.11 |
-| `src/client.ts` | ✅ Exists | **Needs dual-auth update — see below** |
-| `src/educenter.api.ts` | ✅ Exists | Covers CBT + courses (existing) |
-| `src/fitness.api.ts` | ✅ Exists | Covers planai fitness tool |
-| `src/hub.api.ts` | ✅ Exists | Covers §4.4 |
-| `src/interceptors.ts` | ✅ Exists | 401 retry + token refresh |
-| `src/media.api.ts` | ✅ Exists | Covers §4.7 |
-| `src/n8n-client.ts` | ✅ Exists | n8n trigger |
-| `src/notifications.api.ts` | ✅ Exists | Covers §4.8 |
-| `src/os.api.ts` | ✅ Exists | Project manager / OS profile |
-| `src/payment.api.ts` | ✅ Exists | Covers §4.5 |
-| `src/planai.api.ts` | ✅ Exists | Suite + all 13 tool endpoints |
-| `src/users.api.ts` | ✅ Exists | Covers §4.3 |
-| `src/vibecoders.api.ts` | ✅ Exists | Application pipeline |
-| `src/villagecircle.api.ts` | ✅ Exists | Sub-modules |
-| `src/wallet.api.ts` | ⚡ **MISSING** | Create — §4.6 |
-| `src/developer.api.ts` | ⚡ **MISSING** | Create — §4.17 |
-| `src/polymind.api.ts` | ⚡ **MISSING** | Create — §4.18 |
-| `src/educenter-lms.api.ts` | ⚡ **MISSING** | Create — LMS builder endpoints |
-| `src/educenter-school.api.ts` | ⚡ **MISSING** | Create — school portal endpoints |
+| File                          | Status         | Notes                                  |
+| ----------------------------- | -------------- | -------------------------------------- |
+| `src/admin.api.ts`            | ✅ Exists      | Covers admin endpoints §4.16           |
+| `src/amebogist.api.ts`        | ✅ Exists      | Covers §4.12                           |
+| `src/analytics.api.ts`        | ✅ Exists      | Covers §4.9                            |
+| `src/auth.api.ts`             | ✅ Exists      | Covers §4.1 + §4.2                     |
+| `src/automation.api.ts`       | ✅ Exists      | Covers §4.11                           |
+| `src/client.ts`               | ✅ Exists      | **Needs dual-auth update — see below** |
+| `src/educenter.api.ts`        | ✅ Exists      | Covers CBT + courses (existing)        |
+| `src/fitness.api.ts`          | ✅ Exists      | Covers planai fitness tool             |
+| `src/hub.api.ts`              | ✅ Exists      | Covers §4.4                            |
+| `src/interceptors.ts`         | ✅ Exists      | 401 retry + token refresh              |
+| `src/media.api.ts`            | ✅ Exists      | Covers §4.7                            |
+| `src/n8n-client.ts`           | ✅ Exists      | n8n trigger                            |
+| `src/notifications.api.ts`    | ✅ Exists      | Covers §4.8                            |
+| `src/os.api.ts`               | ✅ Exists      | Project manager / OS profile           |
+| `src/payment.api.ts`          | ✅ Exists      | Covers §4.5                            |
+| `src/planai.api.ts`           | ✅ Exists      | Suite + all 13 tool endpoints          |
+| `src/users.api.ts`            | ✅ Exists      | Covers §4.3                            |
+| `src/vibecoders.api.ts`       | ✅ Exists      | Application pipeline                   |
+| `src/villagecircle.api.ts`    | ✅ Exists      | Sub-modules                            |
+| `src/wallet.api.ts`           | ⚡ **MISSING** | Create — §4.6                          |
+| `src/developer.api.ts`        | ⚡ **MISSING** | Create — §4.17                         |
+| `src/polymind.api.ts`         | ⚡ **MISSING** | Create — §4.18                         |
+| `src/educenter-lms.api.ts`    | ⚡ **MISSING** | Create — LMS builder endpoints         |
+| `src/educenter-school.api.ts` | ⚡ **MISSING** | Create — school portal endpoints       |
 
 ---
 
@@ -2665,10 +2894,13 @@ Use this checklist for EVERY code generation task, PR, scaffold, or AI-generated
 
 **Note on `kolo-ai/translation.schema.ts`:** The canonical doc flags this schema filename as probably incorrect — it should be `kolo-group.schema.ts`. When building the KoloAI Wave 5 feature, rename it and update all imports in the module.
 ```
+
 ---
 
 ## 17. API Reference Cross-Reference
+
 ---
+
 The `boldmind-service-canonical.md` contains the **full API reference** for all 18 endpoint groups. The system-design-v2 only summarises. When generating code for any endpoint, use the canonical doc as the source of truth for:
 
 - Exact request body shape
@@ -2678,47 +2910,48 @@ The `boldmind-service-canonical.md` contains the **full API reference** for all 
 
 Quick lookup:
 
-| Section | Groups Covered |
-|---|---|
-| §4.1 | Auth (register, login, refresh, logout, verify, reset, 2FA, Google OAuth) |
-| §4.2 | SSO (relay, exchange, verify, logout-all) |
-| §4.3 | User / Me (admin user mgmt + self-service) |
-| §4.4 | Hub (dashboard, products, ecosystem, referral, waitlist, changelog) |
-| §4.5 | Payment & Subscription |
-| §4.6 | Wallet ⚡ MISSING |
-| §4.7 | Media |
-| §4.8 | Notification (push, email, OTP) |
-| §4.9 | Analytics |
-| §4.10 | AI (generate, image, social caption, trends) |
-| §4.11 | Automation (social schedule, email campaigns, n8n) |
-| §4.12 | Amebogist (posts, reactions, comments, creator) |
-| §4.13 | EduCenter (CBT, courses, LMS, school, prompts, playbooks) |
-| §4.14 | PlanAI (all 13 tools — social, ads, brand, intelligence, investor, marketing, directory, agent, projects, CRM, HR, fitness, marketplace) |
-| §4.15 | VillageCircle (waitlist, vibecoders pipeline, kolo, remit, receipts, safeai, farmgate, gig) |
-| §4.16 | Admin |
-| §4.17 | Developer / Enterprise API ⚡ MISSING |
-| §4.18 | PolyMind Proxy ⚡ MISSING |
+| Section | Groups Covered                                                                                                                           |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| §4.1    | Auth (register, login, refresh, logout, verify, reset, 2FA, Google OAuth)                                                                |
+| §4.2    | SSO (relay, exchange, verify, logout-all)                                                                                                |
+| §4.3    | User / Me (admin user mgmt + self-service)                                                                                               |
+| §4.4    | Hub (dashboard, products, ecosystem, referral, waitlist, changelog)                                                                      |
+| §4.5    | Payment & Subscription                                                                                                                   |
+| §4.6    | Wallet ⚡ MISSING                                                                                                                        |
+| §4.7    | Media                                                                                                                                    |
+| §4.8    | Notification (push, email, OTP)                                                                                                          |
+| §4.9    | Analytics                                                                                                                                |
+| §4.10   | AI (generate, image, social caption, trends)                                                                                             |
+| §4.11   | Automation (social schedule, email campaigns, n8n)                                                                                       |
+| §4.12   | Amebogist (posts, reactions, comments, creator)                                                                                          |
+| §4.13   | EduCenter (CBT, courses, LMS, school, prompts, playbooks)                                                                                |
+| §4.14   | PlanAI (all 13 tools — social, ads, brand, intelligence, investor, marketing, directory, agent, projects, CRM, HR, fitness, marketplace) |
+| §4.15   | VillageCircle (waitlist, vibecoders pipeline, kolo, remit, receipts, safeai, farmgate, gig)                                              |
+| §4.16   | Admin                                                                                                                                    |
+| §4.17   | Developer / Enterprise API ⚡ MISSING                                                                                                    |
+| §4.18   | PolyMind Proxy ⚡ MISSING                                                                                                                |
 
 ---
 
 ## 18. Cross-App Package Usage Matrix
 
-| Package | boldmind-web | planai-suite | amebogist-web | educenter-web | villagecircle-web | boldmind-service | polymind-extension |
-|---|---|---|---|---|---|---|---|
-| `@boldmindng/utils` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (products/pricing only) | ➖ |
-| `@boldmindng/ui` | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | ➖ (own React UI) |
-| `@boldmindng/auth` | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | ➖ |
-| `@boldmindng/api-client` | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | ✅ (apikey mode) |
-| `@boldmindng/analytics` | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | ➖ |
-| `@boldmindng/email` | ➖ | ➖ | ➖ | ➖ | ➖ | ✅ only | ➖ |
-| `@boldmindng/payments` | ➖ | ➖ | ➖ | ➖ | ➖ | ✅ only | ➖ |
-| `@boldmindng/sms` | ➖ | ➖ | ➖ | ➖ | ➖ | ✅ only | ➖ |
-| `@boldmindng/wallet` | ✅ | ➖ | ➖ | ➖ | ➖ | ➖ (Prisma directly) | ➖ |
-| `@boldmindng/api-docs` | ✅ (changelog + docs) | ➖ | ➖ | ➖ | ➖ | ➖ (source of OpenAPI) | ➖ |
-| `@boldmindng/pwa` | ✅ | ➖ | ✅ (TWA) | ✅ (TWA) | ➖ | ➖ | ➖ |
-| `@boldmindng/deploy-config` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ |
+| Package                     | boldmind-web          | planai-suite | amebogist-web | educenter-web | villagecircle-web | boldmind-service           | polymind-extension |
+| --------------------------- | --------------------- | ------------ | ------------- | ------------- | ----------------- | -------------------------- | ------------------ |
+| `@boldmindng/utils`         | ✅                    | ✅           | ✅            | ✅            | ✅                | ✅ (products/pricing only) | ➖                 |
+| `@boldmindng/ui`            | ✅                    | ✅           | ✅            | ✅            | ✅                | ➖                         | ➖ (own React UI)  |
+| `@boldmindng/auth`          | ✅                    | ✅           | ✅            | ✅            | ✅                | ➖                         | ➖                 |
+| `@boldmindng/api-client`    | ✅                    | ✅           | ✅            | ✅            | ✅                | ➖                         | ✅ (apikey mode)   |
+| `@boldmindng/analytics`     | ✅                    | ✅           | ✅            | ✅            | ✅                | ➖                         | ➖                 |
+| `@boldmindng/email`         | ➖                    | ➖           | ➖            | ➖            | ➖                | ✅ only                    | ➖                 |
+| `@boldmindng/payments`      | ➖                    | ➖           | ➖            | ➖            | ➖                | ✅ only                    | ➖                 |
+| `@boldmindng/sms`           | ➖                    | ➖           | ➖            | ➖            | ➖                | ✅ only                    | ➖                 |
+| `@boldmindng/wallet`        | ✅                    | ➖           | ➖            | ➖            | ➖                | ➖ (Prisma directly)       | ➖                 |
+| `@boldmindng/api-docs`      | ✅ (changelog + docs) | ➖           | ➖            | ➖            | ➖                | ➖ (source of OpenAPI)     | ➖                 |
+| `@boldmindng/pwa`           | ✅                    | ➖           | ✅ (TWA)      | ✅ (TWA)      | ➖                | ➖                         | ➖                 |
+| `@boldmindng/deploy-config` | ✅                    | ✅           | ✅            | ✅            | ✅                | ✅                         | ➖                 |
 
 **Key rules from this matrix:**
+
 - `email`, `payments`, `sms` are **server-side only** — never import in frontend repos
 - `wallet` is **client-side helper only** — never talks to DB (uses api-client internally)
 - `polymind-extension` uses `api-client` in `apikey` mode — no other shared packages
@@ -2758,17 +2991,307 @@ These three tooling packages exist in `boldmind-shared/tooling/` and are consume
 
 ### `@boldmindng/tsconfig` (`tooling/tsconfig/`)
 
-| File | Extends | Used by |
-|---|---|---|
-| `base.json` | — | Root `tsconfig.json` of all repos |
-| `node-library.json` | `base.json` | `api-client`, `payments`, `sms`, `wallet`, `api-docs`, `deploy-config` |
-| `react-library.json` | `base.json` | `ui`, `pwa` (DOM + React JSX) |
+| File                 | Extends     | Used by                                                                |
+| -------------------- | ----------- | ---------------------------------------------------------------------- |
+| `base.json`          | —           | Root `tsconfig.json` of all repos                                      |
+| `node-library.json`  | `base.json` | `api-client`, `payments`, `sms`, `wallet`, `api-docs`, `deploy-config` |
+| `react-library.json` | `base.json` | `ui`, `pwa` (DOM + React JSX)                                          |
 
 ```jsonc
 // Usage in each package's tsconfig.json:
 {
-  "extends": "@boldmindng/tsconfig/react-library.json"
+  "extends": "@boldmindng/tsconfig/react-library.json",
 }
 ```
 
 ---
+
+## 20. Known Issues & Required Fixes
+
+_Merged from addendum §K._ These items are flagged from cross-referencing the canonical docs
+against the actual uploaded source and must be addressed — several are launch-blocking.
+
+### 20.1 `kolo-ai/translation.schema.ts` — Probable Misnaming
+
+```
+Current file: src/modules/villagecircle/kolo-ai/translation.schema.ts
+Expected:     src/modules/villagecircle/kolo-ai/kolo-group.schema.ts
+```
+
+When building the Wave 5 KoloAI feature: rename the file and update the import in `kolo-ai.module.ts`.
+
+### 20.2 Google OAuth Bug in `auth.controller.ts` — Must Fix Before Going Live
+
+The current `auth.controller.ts` has a double-call bug on the Google OAuth callback that passes
+the wrong arguments on the second call:
+
+```typescript
+// ❌ CURRENT (BUG — wrong args):
+const relayToken = await this.ssoService.createRelayToken(user.id, accessToken);
+const relayUrl = await this.ssoService.createRelayToken(returnUrl, relayToken); // ← WRONG
+
+// ✅ FIX — use buildSsoRelayUrl instead of a second createRelayToken call:
+const relayUrl = await this.ssoService.buildSsoRelayUrl(
+  user.id,
+  accessToken,
+  returnUrl,
+  {}, // empty UTM on OAuth redirect
+);
+return res.redirect(relayUrl);
+```
+
+This directly affects Section B6 of the Master Output Checklist (§15) — do not ship Google
+OAuth cross-domain redirects until `buildSsoRelayUrl` replaces the second `createRelayToken` call.
+
+### 20.3 `os.api.ts` — Legacy Alias
+
+`packages/api-client/src/os.api.ts` is a legacy alias re-exporting `planaiApi.projects`
+(Project Manager was formerly "BoldMind OS"). New code should call `planaiApi.projects`
+directly. The file is retained for backward compatibility only — do not add new logic to it.
+
+### 20.4 `fitness.api.ts` — Legacy Alias
+
+Same pattern as above: `fitness.api.ts` re-exports `planaiApi.fitness`. New code should use
+`planaiApi.fitness` directly.
+
+### 20.5 `@boldmindng/payments` — Server-Only Warning
+
+This package must **never** be imported in any Next.js frontend repo — it contains secret
+payment SDK clients. If it appears in a frontend `package.json`, remove it immediately.
+Frontends interact with payments exclusively via `paymentApi` from `@boldmindng/api-client`.
+
+---
+
+## 21. Environment Variables — Complete Checklist
+
+_Merged from addendum §L._ This is the complete environment variable checklist across all 8
+groups — the earlier "Environment Variables (Updated)" in Section 3.3 only covered Redis. Use
+this section as the authoritative full list for `boldmind-service`.
+
+```env
+# ─── DATABASE ─────────────────────────────────────────────────────────────────
+DATABASE_URL=postgresql://...                # Neon PostgreSQL (Prisma)
+MONGODB_URI=mongodb+srv://...               # MongoDB Atlas (Mongoose)
+
+# ─── REDIS (3 INSTANCES — all required after Wave 0) ─────────────────────────
+REDIS_SESSION_URL=redis://default:<pw>@<host>:6379   # SSO, OTP, rate limits
+REDIS_QUEUE_URL=redis://default:<pw>@<host>:6379     # BullMQ ONLY
+REDIS_CACHE_URL=redis://default:<pw>@<host>:6379     # ALOC, rates, stats
+# Upstash recommended:
+#   SESSION: 256MB, AOF, noeviction
+#   QUEUE:   1GB+, RDB, noeviction
+#   CACHE:   512MB, no persistence, allkeys-lru
+
+# ─── AUTH ─────────────────────────────────────────────────────────────────────
+JWT_SECRET=<64-char hex>
+JWT_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN=7d
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_CALLBACK_URL=https://api.boldmind.ng/api/v1/auth/google/callback
+
+# ─── PAYMENTS ─────────────────────────────────────────────────────────────────
+PAYSTACK_SECRET_KEY=sk_live_...
+PAYSTACK_PUBLIC_KEY=pk_live_...
+PAYSTACK_WEBHOOK_SECRET=
+
+# ─── AI PROVIDERS ─────────────────────────────────────────────────────────────
+OPENAI_API_KEY=                             # GPT-4o (primary)
+ANTHROPIC_API_KEY=                          # Claude (PolyMind proxy)
+GOOGLE_GEMINI_API_KEY=                      # Gemini (PolyMind proxy)
+GROQ_API_KEY=                               # Groq/LLaMA (PolyMind proxy)
+CLOUDFLARE_AI_TOKEN=                        # Cloudflare Workers AI
+CLOUDFLARE_ACCOUNT_ID=
+FAL_API_KEY=                                # fal.ai FLUX image generation
+OLLAMA_BASE_URL=http://localhost:11434      # Local Ollama (dev only)
+
+# ─── COMMUNICATIONS ───────────────────────────────────────────────────────────
+RESEND_API_KEY=                             # Email via Resend
+TERMII_API_KEY=                             # SMS fallback via Termii
+TERMII_SENDER_ID=BOLDMIND                   # NCC-registered sender ID
+META_WHATSAPP_PHONE_NUMBER_ID=              # WhatsApp Business OTP (primary)
+META_WHATSAPP_ACCESS_TOKEN=                 # Meta Cloud API access token
+META_VERIFY_TOKEN=                          # Meta webhook verification token
+
+# ─── STORAGE ──────────────────────────────────────────────────────────────────
+CLOUDFLARE_R2_ACCESS_KEY_ID=
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=
+CLOUDFLARE_R2_BUCKET_NAME=
+CLOUDFLARE_R2_ENDPOINT=                    # https://<accountid>.r2.cloudflarestorage.com
+CLOUDFLARE_STREAM_TOKEN=                   # Cloudflare Stream (video)
+
+# ─── INTEGRATIONS ─────────────────────────────────────────────────────────────
+ALOC_API_KEY=                              # EduCenter exam questions
+ALOC_BASE_URL=
+
+# ─── WEB PUSH / PWA ───────────────────────────────────────────────────────────
+VAPID_PUBLIC_KEY=                          # Also needed as NEXT_PUBLIC_VAPID_PUBLIC_KEY
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:hello@boldmind.ng
+
+# ─── ENTERPRISE API ───────────────────────────────────────────────────────────
+API_KEY_ENCRYPTION_SECRET=<32-char hex>    # Used in ApiKeyGuard SHA-256 hash
+WEBHOOK_DELIVERY_TIMEOUT_MS=5000
+
+# ─── APP ──────────────────────────────────────────────────────────────────────
+PORT=3001
+NODE_ENV=production
+API_VERSION=v1
+FRONTEND_URLS=https://boldmind.ng,https://planai.boldmind.ng,https://educenter.com.ng,https://villagecircle.ng,https://amebogist.ng
+CORS_ORIGINS=                              # Same as FRONTEND_URLS
+HUB_URL=https://boldmind.ng               # Used in auth.controller.ts post-login redirect
+```
+
+**Frontend env vars (add to all Next.js apps — values vary per app):**
+
+```env
+# Common across ALL 5 Next.js apps:
+NEXT_PUBLIC_API_URL=https://api.boldmind.ng/api/v1
+NEXT_PUBLIC_HUB_URL=https://boldmind.ng            # Same for all apps
+NEXT_PUBLIC_POSTHOG_KEY=ph_...
+NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com
+NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=pk_live_...
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=                      # For subscribeToPush() in @boldmindng/pwa
+
+# Per-app values:
+NEXT_PUBLIC_APP_URL=https://boldmind.ng            # change per app
+NEXT_PUBLIC_PRODUCT_SLUG=boldmind-hub              # change per app
+
+# Server-side only (not prefixed NEXT_PUBLIC_):
+SSO_EXCHANGE_URL=https://api.boldmind.ng/api/v1/auth/sso/exchange
+```
+
+---
+
+## 22. Combined Implementation Priority (Wave 0 → 5)
+
+_Merged from addendum §N._ This is the Wave plan from Section 14 cross-referenced with
+`boldmind-service-canonical.md`, expressed as a per-task, per-file, per-owner table.
+
+### 🔴 Do First (Wave 0 — before any feature work)
+
+| Task                                | File                             | Owner   |
+| ----------------------------------- | -------------------------------- | ------- |
+| Rewrite Redis to 3 instances        | `src/database/redis.service.ts`  | backend |
+| Update BullMQ connection            | `src/app.module.ts`              | backend |
+| Add 4 new queue constants           | `src/common/constants/queues.ts` | backend |
+| Provision 3 Upstash Redis instances | Upstash dashboard                | devops  |
+
+### 🔴 Wave 1 (Weeks 1–3)
+
+| Task                                                   | File                       | Owner   |
+| ------------------------------------------------------ | -------------------------- | ------- |
+| Prisma migration: Wallet + Referral + AffiliateEarning | `prisma/schema.prisma`     | backend |
+| Build Wallet module                                    | `src/modules/wallet/`      | backend |
+| Wire wallet credit to Paystack webhook                 | `payment.service.ts`       | backend |
+| Upgrade OTP to WhatsApp-first                          | `notification.service.ts`  | backend |
+| Build `@boldmindng/sms` package                        | `packages/sms/`            | shared  |
+| Create `wallet.api.ts`                                 | `packages/api-client/src/` | shared  |
+| Fix Google OAuth bug (§20.2)                           | `auth.controller.ts`       | backend |
+
+### 🟡 Wave 2 (Weeks 3–7)
+
+| Task                          | File                     | Owner   |
+| ----------------------------- | ------------------------ | ------- |
+| CRM full CRUD + WhatsApp sync | `plan-crm.service.ts`    | backend |
+| HR & Payroll full flow        | `hr-payroll.service.ts`  | backend |
+| AI Business Agent             | `biz-agent.service.ts`   | backend |
+| Marketplace escrow            | `marketplace.service.ts` | backend |
+
+### 🟡 Wave 3 (Weeks 5–9)
+
+| Task                                                      | File                                    | Owner    |
+| --------------------------------------------------------- | --------------------------------------- | -------- |
+| LMS Builder API                                           | `src/modules/educenter/lms/`            | backend  |
+| School Management API                                     | `src/modules/educenter/school/`         | backend  |
+| Prisma: School + VibeCoderClassroom models                | `prisma/schema.prisma`                  | backend  |
+| Prompt Library + Playbook MongoDB schemas                 | `src/modules/educenter/schemas/`        | backend  |
+| Vibe Coders classroom endpoints                           | `villagecircle/vibecoders/`             | backend  |
+| LMS frontend routes                                       | `educenter-web/app/(dashboard)/lms/`    | frontend |
+| School frontend routes                                    | `educenter-web/app/(dashboard)/school/` | frontend |
+| Prompt Library frontend                                   | `educenter-web/app/prompts/`            | frontend |
+| Create `educenter-lms.api.ts` + `educenter-school.api.ts` | `packages/api-client/src/`              | shared   |
+
+### 🔵 Wave 4 (Weeks 8–12)
+
+| Task                                          | File                                    | Owner     |
+| --------------------------------------------- | --------------------------------------- | --------- |
+| Prisma: ApiKey + WebhookSubscription          | `prisma/schema.prisma`                  | backend   |
+| Enterprise API module                         | `src/modules/api/`                      | backend   |
+| PolyMind proxy module                         | `src/modules/polymind/`                 | backend   |
+| Developer portal pages                        | `boldmind-web/app/(public)/developers/` | frontend  |
+| Changelog page                                | `boldmind-web/app/(public)/changelog/`  | frontend  |
+| Build `@boldmindng/api-docs`                  | `packages/api-docs/`                    | shared    |
+| Create `developer.api.ts` + `polymind.api.ts` | `packages/api-client/src/`              | shared    |
+| `polymind-extension` repo scaffold            | new repo                                | extension |
+
+### 🔵 Wave 5+ (Weeks 10–16)
+
+VillageCircle concept graduation — one at a time per product status change in `products.ts`.
+
+---
+
+## 23. Package Audit Checklists
+
+_Merged from addendum §O._ Run these every time the corresponding package is touched.
+
+### `@boldmindng/utils`
+
+- [ ] `src/constants/products.ts`, `pricing.ts`, `colors.ts` are **re-exports** of the source files — not copies. Any copy = drift risk.
+- [ ] `formatNaira()` correctly divides by 100 and uses `toLocaleString('en-NG')`
+- [ ] `useStorage` hook is not confused with Prisma/Redis — it's purely client-side
+
+### `@boldmindng/ui`
+
+- [ ] `SuperNavbar` / `SuperFooter` read product data from `@boldmindng/utils` helpers — no hardcoded nav arrays
+- [ ] `InstallPromptBanner` only renders for products where `product.twa !== undefined`
+- [ ] All components use CSS variables (`--product-primary` etc.) — no hex literals for product colors
+- [ ] `PricingContent` reads from `BOLDMIND_PRICING` — no hardcoded prices
+
+### `@boldmindng/auth`
+
+- [ ] `createAuthMiddleware` path lists match §15 B5 (per-app correct protected-route paths)
+- [ ] `buildSsoRelayUrl` used (not two `createRelayToken` calls) per §20.2 Google OAuth bug fix
+- [ ] No `localStorage` anywhere in this package — Zustand in-memory + httpOnly cookies only
+
+### `@boldmindng/api-client`
+
+- [ ] Every function returns the **unwrapped** data shape (not `{ data: ... }` wrapper)
+- [ ] All 5 new files exist: `wallet.ts`, `developer.ts`, `polymind.ts`, `educenter-lms.ts`, `educenter-school.ts`
+- [ ] `client.ts` supports dual auth mode (`jwt` | `apikey`)
+
+### `@boldmindng/sms`
+
+- [ ] `boldmind_otp` WhatsApp template approved by Meta before going live
+- [ ] `OTPService.send()` order: WhatsApp → Termii → email (email_verify only)
+- [ ] Channel used is logged to `OTPVerification.metadata`
+
+### `@boldmindng/wallet`
+
+- [ ] `WalletSource` union matches Prisma enum exactly (9 values)
+- [ ] `useWallet` invalidates on: payment success, referral conversion, marketplace payout
+
+### `@boldmindng/api-docs`
+
+- [ ] `@scalar/api-reference` is the consumer of `openapi.json` in `boldmind-web /developers/docs`
+- [ ] `getChangelog` maps `products?` field using `BOLDMIND_PRODUCTS` slugs
+
+### `@boldmindng/pwa`
+
+- [ ] `generateManifest` guards on `product.twa !== undefined`
+- [ ] `registerServiceWorker` is a no-op in `NODE_ENV !== 'production'`
+- [ ] VAPID keys in both service env AND `NEXT_PUBLIC_VAPID_PUBLIC_KEY` in frontend envs
+
+### `@boldmindng/deploy-config`
+
+- [ ] `APP_ENV_SCHEMAS` for `boldmind-service` covers all 8 env groups in §21
+- [ ] `DOMAIN_CONFIG` includes `planai.boldmind.ng` and `marketplace.boldmind.ng`
+- [ ] CSP `connect-src` includes `https://api.boldmind.ng`
+- [ ] `generateVercelConfig` rewrites preserve `?sso_token=` query param
+
+---
+
+_BoldmindNG System Design v2.1 (Merged) | June 2026_
+_Supersedes: system-design-v2.md + system-design-v2-alignment-addendum.md_
+_Next review trigger: Any change to products.ts, pricing.ts, colors.ts, or schema.prisma_
+_Always attach project tree files when generating code for any repo_

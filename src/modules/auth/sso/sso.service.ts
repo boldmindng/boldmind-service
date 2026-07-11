@@ -1,13 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Response } from 'express';
-import * as crypto from 'crypto';
-import { RedisService } from '../../../database/redis.service';
-import { BOLDMIND_PRODUCTS } from '@boldmindng/utils';
-import type { UtmParams } from '@boldmindng/analytics';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Response } from "express";
+import * as crypto from "crypto";
+import { RedisService } from "../../../database/redis.service";
+import { BOLDMIND_PRODUCTS } from "@boldmindng/utils";
+import type { UtmParams } from "@boldmindng/analytics";
 
-export const SSO_COOKIE_NAME = 'boldmind_sso';
+export const SSO_COOKIE_NAME = "boldmind_sso";
 const RELAY_TTL_SECS = 60; // one-time-use, 60 second TTL
+export const SSO_REFRESH_COOKIE_NAME = "boldmind_refresh";
 
 /**
  * Pillar domains that require relay token SSO.
@@ -15,18 +16,17 @@ const RELAY_TTL_SECS = 60; // one-time-use, 60 second TTL
  */
 
 export const EXTERNAL_PILLAR_DOMAINS = new Set([
-  'amebogist.ng',
-  'educenter.com.ng',
-  'villagecircle.ng',
+  "amebogist.ng",
+  "educenter.com.ng",
+  "villagecircle.ng",
 ]);
 
 const TRUSTED_ORIGINS = new Set([
-  'boldmind.ng',
-  'planai.boldmind.ng',
-  'marketplace.boldmind.ng',
+  "boldmind.ng",
+  "planai.boldmind.ng",
+  "marketplace.boldmind.ng",
   ...Array.from(EXTERNAL_PILLAR_DOMAINS),
 ]);
-
 
 @Injectable()
 export class SsoService {
@@ -39,10 +39,10 @@ export class SsoService {
     private readonly config: ConfigService,
     private readonly redis: RedisService,
   ) {
-    this.isProd = this.config.get<string>('NODE_ENV') === 'production';
+    this.isProd = this.config.get<string>("NODE_ENV") === "production";
     // .boldmind.ng covers boldmind.ng, planai.boldmind.ng, marketplace.boldmind.ng, etc.
-    this.cookieDomain = this.isProd ? '.boldmind.ng' : 'localhost';
-    this.hubUrl = this.config.get<string>('HUB_URL', 'https://boldmind.ng');
+    this.cookieDomain = this.isProd ? ".boldmind.ng" : "localhost";
+    this.hubUrl = this.config.get<string>("HUB_URL", "https://boldmind.ng");
   }
 
   // ─── Hub .boldmind.ng cookie ──────────────────────────────────────────────
@@ -53,17 +53,17 @@ export class SsoService {
       secure: this.isProd,
       // 'none' required for cross-origin credentialed requests from external domains
       // 'lax' in dev (localhost same-origin)
-      sameSite: this.isProd ? 'none' : 'lax',
+      sameSite: this.isProd ? "none" : "lax",
       domain: this.cookieDomain,
       maxAge: 15 * 60 * 1000, // 15 min — matches JWT expiry
-      path: '/',
+      path: "/",
     });
   }
 
   clearSsoCookie(res: Response): void {
     res.clearCookie(SSO_COOKIE_NAME, {
       domain: this.cookieDomain,
-      path: '/',
+      path: "/",
     });
   }
 
@@ -78,7 +78,7 @@ export class SsoService {
    * buildCrossDomainUrl() for that — see below.
    */
   async createRelayToken(userId: string, accessToken: string): Promise<string> {
-    const relay = crypto.randomBytes(32).toString('hex'); // 64 hex chars
+    const relay = crypto.randomBytes(32).toString("hex"); // 64 hex chars
     const key = `sso:relay:${relay}`;
     await this.redis.session.setex(
       key,
@@ -98,7 +98,9 @@ export class SsoService {
    * method throw on every call. Now does an atomic GET-then-DELETE via Lua,
    * matching the pattern already used in RedisService.consumeSSOToken().
    */
-  async exchangeRelayToken(relay: string): Promise<{ userId: string; accessToken: string }> {
+  async exchangeRelayToken(
+    relay: string,
+  ): Promise<{ userId: string; accessToken: string }> {
     const key = `sso:relay:${relay}`;
 
     const raw = (await this.redis.session.eval(
@@ -109,7 +111,7 @@ export class SsoService {
       key,
     )) as string | null;
 
-    if (!raw) throw new Error('Relay token invalid or expired');
+    if (!raw) throw new Error("Relay token invalid or expired");
     return JSON.parse(raw) as { userId: string; accessToken: string };
   }
 
@@ -134,16 +136,16 @@ export class SsoService {
     try {
       url = new URL(destination);
     } catch {
-      throw new Error('Invalid destination URL');
+      throw new Error("Invalid destination URL");
     }
 
     // Point to the external domain's /sso handler
-    const ssoUrl = new URL('/sso', url.origin);
-    ssoUrl.searchParams.set('relay', relay);
+    const ssoUrl = new URL("/sso", url.origin);
+    ssoUrl.searchParams.set("relay", relay);
     // Preserve the original path as return_path
     const returnPath = url.pathname + url.search;
-    if (returnPath && returnPath !== '/') {
-      ssoUrl.searchParams.set('return_path', url.pathname);
+    if (returnPath && returnPath !== "/") {
+      ssoUrl.searchParams.set("return_path", url.pathname);
     }
     // Thread UTM params
     this.applyUTM(ssoUrl, utm);
@@ -186,13 +188,13 @@ export class SsoService {
   ): string {
     try {
       const destUrl = new URL(destination);
-      const ssoUrl = new URL('/sso', destUrl.origin);
+      const ssoUrl = new URL("/sso", destUrl.origin);
 
-      ssoUrl.searchParams.set('relay', relayToken);
+      ssoUrl.searchParams.set("relay", relayToken);
 
       const returnPath = destUrl.pathname + destUrl.search;
-      if (returnPath && returnPath !== '/') {
-        ssoUrl.searchParams.set('return_path', returnPath);
+      if (returnPath && returnPath !== "/") {
+        ssoUrl.searchParams.set("return_path", returnPath);
       }
 
       this.applyUTM(ssoUrl, utm);
@@ -204,7 +206,7 @@ export class SsoService {
 
   isExternalDomain(url: string): boolean {
     try {
-      const hostname = new URL(url).hostname.replace(/^www\./, '');
+      const hostname = new URL(url).hostname.replace(/^www\./, "");
       return EXTERNAL_PILLAR_DOMAINS.has(hostname);
     } catch {
       return false;
@@ -225,9 +227,9 @@ export class SsoService {
 
     try {
       const { hostname } = new URL(url);
-      const clean = hostname.replace(/^www\./, '').toLowerCase();
+      const clean = hostname.replace(/^www\./, "").toLowerCase();
 
-      if (TRUSTED_ORIGINS.has(clean) || clean.endsWith('.boldmind.ng')) {
+      if (TRUSTED_ORIGINS.has(clean) || clean.endsWith(".boldmind.ng")) {
         return url;
       }
       return fallback;
@@ -258,14 +260,34 @@ export class SsoService {
   // ─── Internal helpers ─────────────────────────────────────────────────────
 
   private applyUTM(url: URL, utm: UtmParams): void {
-    if (utm.source) url.searchParams.set('utm_source', utm.source);
-    if (utm.medium) url.searchParams.set('utm_medium', utm.medium);
-    if (utm.campaign) url.searchParams.set('utm_campaign', utm.campaign);
-    if (utm.content) url.searchParams.set('utm_content', utm.content);
-    if (utm.term) url.searchParams.set('utm_term', utm.term);
+    if (utm.source) url.searchParams.set("utm_source", utm.source);
+    if (utm.medium) url.searchParams.set("utm_medium", utm.medium);
+    if (utm.campaign) url.searchParams.set("utm_campaign", utm.campaign);
+    if (utm.content) url.searchParams.set("utm_content", utm.content);
+    if (utm.term) url.searchParams.set("utm_term", utm.term);
   }
 
   isExternalPillarDomain(hostname: string): boolean {
-    return EXTERNAL_PILLAR_DOMAINS.has(hostname.replace(/^www\./, ''));
+    return EXTERNAL_PILLAR_DOMAINS.has(hostname.replace(/^www\./, ""));
+  }
+
+  // inside SsoService class:
+
+  setRefreshCookie(res: Response, refreshToken: string): void {
+    res.cookie(SSO_REFRESH_COOKIE_NAME, refreshToken, {
+      httpOnly: true,
+      secure: this.isProd,
+      sameSite: this.isProd ? "strict" : "lax", // refresh cookie stays same-domain only, unlike boldmind_sso
+      domain: this.cookieDomain,
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days — matches REFRESH_TOKEN_EXPIRY_DAYS
+      path: "/api/v1/auth", // scope narrowly — this cookie should never leave the auth routes
+    });
+  }
+
+  clearRefreshCookie(res: Response): void {
+    res.clearCookie(SSO_REFRESH_COOKIE_NAME, {
+      domain: this.cookieDomain,
+      path: "/api/v1/auth",
+    });
   }
 }

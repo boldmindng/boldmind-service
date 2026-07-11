@@ -294,6 +294,7 @@ model User {
   phoneVerifiedAt  DateTime?
   twoFactorEnabled Boolean   @default(false)
   twoFactorSecret  String?
+  isPhoneVerified  Boolean   @default(false)
 
   // OAuth
   provider   AuthProvider @default(email)
@@ -362,16 +363,17 @@ model User {
   orders Order[] @relation("BuyerOrders")
 
   // Admin
-  adminLogs       AdminLog[]
-  waitlistEntries WaitlistEntry[]
-  crmcontacts     CRMContact[]
-wallet              Wallet?
-apiKeys             ApiKey[]
-school              School?
-referralsMade       Referral[]          @relation("Referrer")
-referredBy          Referral?           @relation("Referred")
-affiliateEarnings   AffiliateEarning[]
-webhookSubscriptions WebhookSubscription[]
+  adminLogs            AdminLog[]
+  waitlistEntries      WaitlistEntry[]
+  crmcontacts          CRMContact[]
+  wallet               Wallet?
+  apiKeys              ApiKey[]
+  school               School?
+  referralsMade        Referral[]            @relation("Referrer")
+  referredBy           Referral?             @relation("Referred")
+  affiliateEarnings    AffiliateEarning[]
+  webhookSubscriptions WebhookSubscription[]
+
   @@index([email])
   @@index([phone])
   @@index([role])
@@ -384,18 +386,19 @@ webhookSubscriptions WebhookSubscription[]
 // ─── WALLET ──────────────────────────────────────────────────────────────────
 
 model Wallet {
-  id              String        @id @default(cuid())
-  userId          String        @unique
-  balanceKobo     Int           @default(0)
-  tier            WalletTier    @default(TIER1)
-  dailyDebitKobo  Int           @default(0)
-  lastDebitReset  DateTime      @default(now())
-  isLocked        Boolean       @default(false)
-  lockReason      String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ledger          WalletLedger[]
+  id             String         @id @default(cuid())
+  userId         String         @unique
+  balanceKobo    Int            @default(0)
+  tier           WalletTier     @default(TIER1)
+  dailyDebitKobo Int            @default(0)
+  lastDebitReset DateTime       @default(now())
+  isLocked       Boolean        @default(false)
+  lockReason     String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger         WalletLedger[]
+
   @@map("wallets")
 }
 
@@ -411,6 +414,7 @@ model WalletLedger {
   metadata     Json?
   createdAt    DateTime        @default(now())
   wallet       Wallet          @relation(fields: [walletId], references: [id])
+
   @@index([walletId])
   @@index([walletId, createdAt])
   @@index([reference])
@@ -446,11 +450,12 @@ model Referral {
   referrerId     String
   referredId     String   @unique
   productSlug    String
-  status         String   @default("pending")  // pending | converted | paid
+  status         String   @default("pending") // pending | converted | paid
   commissionKobo Int      @default(0)
   createdAt      DateTime @default(now())
   referrer       User     @relation("Referrer", fields: [referrerId], references: [id])
   referred       User     @relation("Referred", fields: [referredId], references: [id])
+
   @@index([referrerId])
   @@map("referrals")
 }
@@ -464,6 +469,7 @@ model AffiliateEarning {
   paidAt     DateTime?
   createdAt  DateTime  @default(now())
   user       User      @relation(fields: [userId], references: [id])
+
   @@index([userId])
   @@map("affiliate_earnings")
 }
@@ -471,21 +477,22 @@ model AffiliateEarning {
 // ─── API KEYS ─────────────────────────────────────────────────────────────────
 
 model ApiKey {
-  id         String    @id @default(cuid())
+  id         String                @id @default(cuid())
   userId     String
   name       String
-  keyHash    String    @unique
+  keyHash    String                @unique
   prefix     String
   scopes     String[]
-  tier       ApiTier   @default(STARTER)
-  isActive   Boolean   @default(true)
-  rateLimit  Int       @default(1000)
+  tier       ApiTier               @default(STARTER)
+  isActive   Boolean               @default(true)
+  rateLimit  Int                   @default(1000)
   lastUsedAt DateTime?
   expiresAt  DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  user       User      @relation(fields: [userId], references: [id])
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+  user       User                  @relation(fields: [userId], references: [id])
   webhooks   WebhookSubscription[]
+
   @@index([userId])
   @@index([keyHash])
   @@map("api_keys")
@@ -509,6 +516,7 @@ model WebhookSubscription {
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id])
   apiKey    ApiKey   @relation(fields: [apiKeyId], references: [id])
+
   @@index([userId])
   @@map("webhook_subscriptions")
 }
@@ -530,44 +538,46 @@ model School {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   admin           User      @relation(fields: [adminUserId], references: [id])
+
   @@map("schools")
 }
 
 // ─── VIBE CODERS CLASSROOM ───────────────────────────────────────────────────
 
 model VibeCoderProjectSubmission {
-  id          String              @id @default(cuid())
+  id          String             @id @default(cuid())
   applicantId String
   moduleId    String
   githubUrl   String?
   loomUrl     String?
-  brief       String              @db.Text
-  status      String              @default("submitted")
-  mentorNote  String?             @db.Text
+  brief       String             @db.Text
+  status      String             @default("submitted")
+  mentorNote  String?            @db.Text
   reviewedBy  String?
   score       Int?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  applicant   VibeCoderApplicant  @relation(fields: [applicantId], references: [id])
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  applicant   VibeCoderApplicant @relation(fields: [applicantId], references: [id])
+
   @@index([applicantId])
   @@map("vc_project_submissions")
 }
 
 model VibeCoderAttendance {
-  id          String              @id @default(cuid())
+  id          String             @id @default(cuid())
   applicantId String
   sessionDate DateTime
   sessionType String
   moduleId    String
-  attended    Boolean             @default(false)
+  attended    Boolean            @default(false)
   joinedAt    DateTime?
   duration    Int?
-  createdAt   DateTime            @default(now())
-  applicant   VibeCoderApplicant  @relation(fields: [applicantId], references: [id])
+  createdAt   DateTime           @default(now())
+  applicant   VibeCoderApplicant @relation(fields: [applicantId], references: [id])
+
   @@unique([applicantId, sessionDate, moduleId])
   @@map("vc_attendance")
 }
-
 
 // ── CRM ──────────────────────────────────────────────────────────────────────
 
@@ -1866,11 +1876,11 @@ model VibeCoderApplicant {
   source       String?
   referralCode String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-projectSubmissions  VibeCoderProjectSubmission[]
-attendance          VibeCoderAttendance[]
-  cohort VibeCoderCohort? @relation(fields: [cohortId], references: [id])
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  projectSubmissions VibeCoderProjectSubmission[]
+  attendance         VibeCoderAttendance[]
+  cohort             VibeCoderCohort?             @relation(fields: [cohortId], references: [id])
 
   @@index([status])
   @@index([cohortId])

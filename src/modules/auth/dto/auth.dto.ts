@@ -1,84 +1,81 @@
 import {
-  IsEmail, IsString, MinLength, MaxLength, IsOptional,
-  IsEnum, IsIn, Matches,
-} from 'class-validator';
-import { Transform } from 'class-transformer';
- 
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/;
- 
+  IsEmail,
+  IsString,
+  MinLength,
+  IsOptional,
+  IsIn,
+  Matches,
+} from "class-validator";
+
 export class RegisterDto {
-  @IsString() @MinLength(2) @MaxLength(100)
-  name: string;
- 
-  @IsEmail() @Transform(({ value }) => (value as string).toLowerCase())
-  email: string;
- 
-  @IsString() @MinLength(8) @MaxLength(128)
-  @Matches(PASSWORD_REGEX, { message: 'Password must contain uppercase, lowercase, number, and special character' })
-  password: string;
- 
-  @IsOptional()
-  @IsIn(['hustler', 'founder', 'creator', 'student', 'business_owner', 'operator', 'partner', 'vibe-coder'])
-  ecosystemRole?: string;
- 
-  @IsOptional() @IsString() @MaxLength(20)
-  referralCode?: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(8) password!: string;
+  @IsString() name!: string;
+  @IsOptional() @Matches(/^\+?[1-9]\d{7,14}$/) phone?: string;
+  @IsOptional() @IsString() ecosystemRole?: string;
+  @IsOptional() @IsString() referralCode?: string;
 }
- 
+
 export class LoginDto {
-  @IsEmail() @Transform(({ value }) => (value as string).toLowerCase())
-  email: string;
- 
-  @IsString() @MinLength(1)
-  password: string;
+  @IsEmail() email!: string;
+  @IsString() password!: string;
 }
- 
+
 export class RefreshTokenDto {
-  @IsString() @MinLength(10)
-  refreshToken: string;
+  @IsOptional() @IsString() refreshToken?: string; // falls back to boldmind_refresh cookie
 }
- 
+
 export class ForgotPasswordDto {
-  @IsEmail() @Transform(({ value }) => (value as string).toLowerCase())
-  email: string;
+  @IsEmail() email!: string;
 }
- 
+
 export class ResetPasswordDto {
-  @IsEmail() @Transform(({ value }) => (value as string).toLowerCase())
-  email: string;
- 
-  @IsString() @MinLength(6) @MaxLength(6)
-  code: string;
- 
-  @IsString() @MinLength(8) @MaxLength(128)
-  @Matches(PASSWORD_REGEX, { message: 'Password must contain uppercase, lowercase, number, and special character' })
-  newPassword: string;
+  @IsEmail() email!: string;
+  @IsString() @Matches(/^\d{6}$/) code!: string;
+  @IsString() @MinLength(8) newPassword!: string;
 }
- 
+
+// Internal — used by AuthService.verifyOtp() for both email + password-reset flows
 export class VerifyOtpDto {
-  @IsEmail() @Transform(({ value }) => (value as string).toLowerCase())
-  email: string;
- 
-  @IsString() @MinLength(6) @MaxLength(6)
-  code: string;
- 
-  @IsIn(['email_verify', 'phone_verify', 'password_reset', '2fa'])
-  purpose: string;
+  @IsEmail() email!: string;
+  @IsString() @Matches(/^\d{6}$/) code!: string;
+  @IsIn(["email_verify", "password_reset"]) purpose!:
+    | "email_verify"
+    | "password_reset";
 }
- 
+
+// Public-facing — POST /auth/verify-email, email comes from the JWT, not the body
+export class VerifyEmailDto {
+  @IsString() @Matches(/^\d{6}$/) code!: string;
+}
+
+export class SendPhoneOtpDto {
+  @Matches(/^\+?[1-9]\d{7,14}$/) phone!: string;
+}
+
+export class VerifyPhoneDto {
+  @Matches(/^\+?[1-9]\d{7,14}$/) phone!: string;
+  @IsString() @Matches(/^\d{6}$/) code!: string;
+}
+
+export class Enable2faDto {
+  @IsOptional() @Matches(/^\+?[1-9]\d{7,14}$/) phone?: string;
+}
+
+export class Verify2faDto {
+  @IsString() @Matches(/^\d{6}$/) code!: string;
+}
+
 export class ChangePasswordDto {
-  @IsString() @MinLength(1)
-  currentPassword: string;
- 
-  @IsString() @MinLength(8) @MaxLength(128)
-  @Matches(PASSWORD_REGEX, { message: 'Password must contain uppercase, lowercase, number, and special character' })
-  newPassword: string;
+  @IsString() currentPassword!: string;
+  @IsString() @MinLength(8) newPassword!: string;
 }
- 
+
 export class UpdateRoleDto {
-  @IsIn([
-    'super_admin', 'admin', 'manager', 'editor', 'support', 'analyst',
-    'hustler', 'founder', 'creator', 'student', 'business_owner', 'operator', 'partner', 'guest', 'vibe-coder'
-  ])
-  role: string;
+  @IsString() role!: string;
+}
+
+export class Login2faDto {
+  @IsString() pendingToken!: string;
+  @IsString() @Matches(/^\d{6}$/) code!: string;
 }

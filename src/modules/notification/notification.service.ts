@@ -5,6 +5,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { HttpService } from "@nestjs/axios";
 import { Queue } from "bullmq";
 import { Resend } from "resend";
+import { render } from "@react-email/render";
 import { firstValueFrom } from "rxjs";
 import * as webpush from "web-push";
 import { PrismaService } from "../../database/prisma.service";
@@ -12,6 +13,52 @@ import { SendEmailDto } from "./dto/send-email.dto";
 import { SendPushDto } from "./dto/send-push.dto";
 import { NotificationType } from "@prisma/client";
 import { QUEUES, JOBS } from "../../common/constants/queues";
+import type {
+  OTPService,
+  OTPPurpose,
+  OTPChannel,
+  OTPResult,
+  OTPDeliveryLog,
+} from "@boldmindng/sms";
+import { Inject } from "@nestjs/common";
+import { OTP_SERVICE } from "./notification.module";
+import * as React from "react";
+
+/**
+ * Wraps @react-email/render + React.createElement together.
+ * Needed because React 19's widened ReactNode (which now includes
+ * `Promise<ReactNode>` for async components) doesn't satisfy
+ * @react-email/render's `render(element: ReactElement)` signature when a
+ * component is invoked as a plain function call. createElement's return
+ * type is always a concrete ReactElement, sidestepping the mismatch.
+ */
+function renderEmail<P extends object>(
+  Component: (props: P) => React.ReactNode,
+  props: P,
+): Promise<string> {
+  return render(React.createElement(Component, props));
+}
+
+// ── @boldmindng/email — shared React Email templates (replaces hand-rolled HTML) ──
+// Prop shapes below match the ACTUAL components in packages/email/src/templates/*.tsx:
+//   WelcomeEmail            ({ fullName })
+//   VerifyEmail              ({ fullName, verificationCode })
+//   ResetPasswordEmail      ({ fullName?, resetUrl })
+//   SubscriptionStarted     ({ name, plan, product })
+//   WaitlistJoined          ({ email, concept })
+//   SsoWelcomeExternal      ({ name, domain })
+//   VibeCodersAccepted      ({ fullName })
+import {
+  WelcomeEmail,
+  VerifyEmail,
+  ResetPasswordEmail,
+  SubscriptionStarted,
+  WaitlistJoined,
+  SsoWelcomeExternal,
+  VibeCodersAccepted,
+} from "@boldmindng/email";
+
+// ── @boldmindng/sms — WhatsApp-first, SMS-fallback OTP orchestrator (§5 of system design) ──
 
 @Injectable()
 export class NotificationService {
@@ -19,7 +66,6 @@ export class NotificationService {
   private readonly resend: Resend;
   private readonly fromEmail: string;
 
-  // WhatsApp Graph API
   private readonly metaApiVersion = "v19.0";
   private readonly defaultWaToken: string;
 
@@ -29,6 +75,7 @@ export class NotificationService {
     private http: HttpService,
     @InjectQueue(QUEUES.EMAIL_NOTIFICATIONS) private emailQueue: Queue,
     @InjectQueue(QUEUES.PUSH_NOTIFICATIONS) private pushQueue: Queue,
+    @Inject(OTP_SERVICE) private readonly otpService: OTPService, // ← injected, see notification.module.ts
   ) {
     this.resend = new Resend(this.config.get<string>("RESEND_API_KEY"));
     this.fromEmail = this.config.get<string>(
@@ -42,6 +89,17 @@ export class NotificationService {
       this.config.getOrThrow<string>("VAPID_PUBLIC_KEY"),
       this.config.getOrThrow<string>("VAPID_PRIVATE_KEY"),
     );
+
+    if (!this.config.get<string>("META_WHATSAPP_ACCESS_TOKEN")) {
+      this.logger.warn(
+        "META_WHATSAPP_ACCESS_TOKEN not set — OTP WhatsApp delivery will fail until configured",
+      );
+    }
+    if (!this.config.get<string>("TERMII_API_KEY")) {
+      this.logger.warn(
+        "TERMII_API_KEY not set — OTP SMS fallback will fail until configured",
+      );
+    }
   }
 
   // ─── EMAIL (Resend) ──────────────────────────────────────────────────────────
@@ -73,96 +131,153 @@ export class NotificationService {
     }
   }
 
+  // ── Templated sends — each renders the shared @boldmindng/email component to
+  // HTML via @react-email/render using the component's REAL prop names, then
+  // reuses sendEmail()'s Resend + logging path.
+
   async sendWelcomeEmail(userId: string, name: string, email: string) {
+    const html = await renderEmail(WelcomeEmail, { fullName: name });
     return this.sendEmail({
       userId,
       to: email,
-      subject: `Welcome to BoldMind, ${name}! 🚀`,
-      html: this.buildWelcomeTemplate(name),
+      subject: `Welcome to the ecosystem, ${name}! 🚀`,
+      html,
       text: `Welcome to BoldMind, ${name}! Your account is ready.`,
     });
   }
 
-  async sendPasswordResetEmail(email: string, resetUrl: string) {
+  async sendPasswordResetEmail(
+    email: string,
+    resetUrl: string,
+    fullName?: string,
+  ) {
+    const html = await renderEmail(ResetPasswordEmail, { fullName, resetUrl });
     return this.sendEmail({
       to: email,
       subject: "Reset Your BoldMind Password",
-      html: this.buildPasswordResetTemplate(resetUrl),
+      html,
       text: `Reset your password here: ${resetUrl}`,
     });
   }
 
-  async sendOtpEmail(email: string, otp: string) {
+  async sendOtpEmail(email: string, otp: string, fullName = "there") {
+    const html = await renderEmail(VerifyEmail, {
+      fullName,
+      verificationCode: otp,
+    });
     return this.sendEmail({
       to: email,
       subject: "Your BoldMind OTP Code",
-      html: `<p>Your one-time code is: <strong>${otp}</strong>. It expires in 10 minutes.</p>`,
-      text: `Your OTP is ${otp}. Expires in 10 minutes.`,
+      html,
+      text: `Your OTP is ${otp}. Expires in 30 minutes.`,
+    });
+  }
+
+  async sendSubscriptionStartedEmail(
+    userId: string,
+    email: string,
+    name: string,
+    plan: string,
+    product: string,
+  ) {
+    const html = await renderEmail(SubscriptionStarted, {
+      name,
+      plan,
+      product,
+    });
+    return this.sendEmail({
+      userId,
+      to: email,
+      subject: `Your ${product} subscription is active`,
+      html,
+      text: `Your ${plan} plan on ${product} is now active.`,
+    });
+  }
+
+  async sendWaitlistJoinedEmail(email: string, concept: string) {
+    const html = await renderEmail(WaitlistJoined, { email, concept });
+    return this.sendEmail({
+      to: email,
+      subject: `You're on the ${concept} waitlist — VillageCircle NG`,
+      html,
+      text: `We've added ${email} to the waitlist for ${concept}.`,
+    });
+  }
+
+  async sendSsoWelcomeExternalEmail(
+    email: string,
+    name: string,
+    domain: string,
+  ) {
+    const html = await renderEmail(SsoWelcomeExternal, { name, domain });
+    return this.sendEmail({
+      to: email,
+      subject: "You signed in to a new BoldmindNG app",
+      html,
+      text: `Hi ${name}, you just signed in to ${domain} using your BoldmindNG account.`,
+    });
+  }
+
+  async sendVibeCodersAcceptedEmail(email: string, fullName: string) {
+    const html = await renderEmail(VibeCodersAccepted, { fullName });
+    return this.sendEmail({
+      to: email,
+      subject: "Your Vibe Coders application was accepted 🚀",
+      html,
+      text: `Hello ${fullName}, congratulations! Your Vibe Coders application has been accepted.`,
     });
   }
 
   /**
-   * Unified OTP dispatch — WhatsApp first, SMS fallback, email as last resort.
+   * Unified OTP dispatch — delegates entirely to @boldmindng/sms OTPService,
+   * which runs WhatsApp → Termii SMS → email (email_verify only) internally
+   * (see packages/sms/src/otp.service.ts). The email step is served by the
+   * ResendOtpEmailProvider adapter wired in notification.module.ts, so this
+   * method no longer needs its own hand-rolled email branch.
    *
-   * KNOWN GAP: this service has no Termii (SMS) or dedicated OTP-template
-   * WhatsApp provider wired in yet — see @boldmindng/sms in
-   * boldmind-system-design-v2.md §5. Until that package is integrated here:
-   *   1. Attempts WhatsApp via the existing sendWhatsapp() Graph API call
-   *      (best-effort — not using an approved "boldmind_otp" auth template).
-   *   2. Falls back to email OTP if WhatsApp fails, since there is no SMS
-   *      provider configured yet.
-   * TODO(Wave 1): swap in OTPService from @boldmindng/sms and route through
-   * QUEUES.SMS_OTP instead of sending synchronously.
+   * `to` must be an E.164 phone number for whatsapp/sms delivery, or an
+   * email address when purpose === 'email_verify'. We steer OTPService
+   * straight to the email channel in that case (rather than letting it
+   * burn a wasted WhatsApp/Termii attempt against a non-phone `to`) by
+   * setting preferChannel: 'email'.
    */
   async sendOtp(dto: {
     to: string;
     code: string;
     purpose: string;
     name?: string;
-    preferChannel?: "whatsapp" | "sms" | "email";
-  }): Promise<{
-    delivered: boolean;
-    channel: "whatsapp" | "sms" | "email";
-    error?: string;
-  }> {
-    const isNigerianPhone = dto.to.startsWith("+234");
-    const wantsWhatsapp =
-      dto.preferChannel !== "email" &&
-      dto.preferChannel !== "sms" &&
-      isNigerianPhone;
-    const phoneNumberId = this.config.get<string>(
-      "META_WHATSAPP_PHONE_NUMBER_ID",
-    );
+    preferChannel?: OTPChannel;
+  }): Promise<OTPResult & { deliveryLog?: OTPDeliveryLog }> {
+    const isEmailTarget = dto.to.includes("@");
+    const wantsEmail =
+      dto.purpose === "email_verify" || dto.preferChannel === "email";
 
-    if (wantsWhatsapp && phoneNumberId) {
-      try {
-        await this.sendWhatsapp(
-          phoneNumberId,
-          dto.to,
-          `Hi ${dto.name ?? "there"}, your BoldMind code is: ${dto.code}. It expires in 15 minutes. Do not share it with anyone.`,
-        );
-        return { delivered: true, channel: "whatsapp" };
-      } catch (err) {
-        this.logger.warn(
-          `OTP WhatsApp delivery failed for ${dto.to}, falling back to email`,
-          err as Error,
-        );
-      }
+    if (wantsEmail && !isEmailTarget) {
+      return {
+        delivered: false,
+        channel: "email",
+        error: "email_verify purpose requires an email address in `to`",
+      };
     }
 
-    // No SMS provider wired yet (Termii not integrated) — email is the only reliable fallback.
-    try {
-      const emailTarget = dto.to.includes("@") ? dto.to : null;
-      if (!emailTarget) {
-        throw new Error(
-          "No SMS provider configured and recipient is a phone number, not an email — cannot deliver OTP",
-        );
-      }
-      await this.sendOtpEmail(emailTarget, dto.code);
-      return { delivered: true, channel: "email" };
-    } catch (err) {
-      return { delivered: false, channel: "email", error: String(err) };
+    const preferChannel: OTPChannel | undefined =
+      dto.preferChannel ?? (wantsEmail || isEmailTarget ? "email" : undefined);
+
+    const result = await this.otpService.send({
+      to: dto.to,
+      code: dto.code,
+      purpose: dto.purpose as OTPPurpose,
+      name: dto.name,
+      preferChannel,
+    });
+
+    if (!result.delivered) {
+      this.logger.warn(
+        `OTP delivery failed via ${result.channel} for ${dto.to}: ${result.error}`,
+      );
     }
+
+    return result;
   }
 
   /** Returns the VAPID public key so the frontend can call PushManager.subscribe(). */
@@ -170,22 +285,7 @@ export class NotificationService {
     return { publicKey: this.config.getOrThrow<string>("VAPID_PUBLIC_KEY") };
   }
 
-  async sendPaymentReceiptEmail(
-    userId: string,
-    email: string,
-    amount: number,
-    plan: string,
-  ) {
-    return this.sendEmail({
-      userId,
-      to: email,
-      subject: `Payment Confirmed — ${plan} Plan`,
-      html: this.buildReceiptTemplate(amount, plan),
-      text: `Payment of ₦${amount.toLocaleString()} confirmed for ${plan} plan.`,
-    });
-  }
-
-  // ─── WHATSAPP (direct Meta Graph API call) ───────────────────────────────────
+  // ─── WHATSAPP (direct Meta Graph API call — plain text, not OTP) ─────────────
   //
   // NotificationService sends simple outbound text messages only.
   // Inbound webhooks, interactive messages, and conversation logging
@@ -283,7 +383,6 @@ export class NotificationService {
       ),
     );
 
-    // Clean up stale subscriptions (410 Gone / 404 Not Found)
     await Promise.allSettled(
       results.map(async (r, i) => {
         if (r.status === "rejected") {
@@ -393,59 +492,5 @@ export class NotificationService {
     } catch (e) {
       this.logger.warn("Failed to log notification", e);
     }
-  }
-
-  private buildWelcomeTemplate(name: string): string {
-    return `
-      <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px">
-        <h1 style="color:#6d28d9">Welcome to BoldMind, ${name}! 🚀</h1>
-        <p>Your account is ready. Start exploring our suite of AI-powered tools.</p>
-        <a href="https://boldmind.ng/dashboard"
-           style="background:#6d28d9;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:16px">
-          Go to Dashboard
-        </a>
-        <p style="color:#6b7280;margin-top:24px;font-size:13px">BoldMind · Lagos, Nigeria</p>
-      </div>`;
-  }
-
-  private buildPasswordResetTemplate(url: string): string {
-    return `
-      <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px">
-        <h2>Reset Your Password</h2>
-        <p>Click below to reset your BoldMind password. This link expires in 1 hour.</p>
-        <a href="${url}"
-           style="background:#dc2626;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:16px">
-          Reset Password
-        </a>
-        <p style="color:#6b7280;font-size:13px;margin-top:16px">
-          If you didn't request this, ignore this email.
-        </p>
-      </div>`;
-  }
-
-  private buildReceiptTemplate(amount: number, plan: string): string {
-    return `
-      <div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px">
-        <h2>Payment Confirmed ✅</h2>
-        <p>Your <strong>${plan}</strong> plan is now active.</p>
-        <table style="width:100%;border-collapse:collapse;margin-top:16px">
-          <tr>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb">Amount</td>
-            <td>₦${amount.toLocaleString()}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px;border-bottom:1px solid #e5e7eb">Plan</td>
-            <td>${plan}</td>
-          </tr>
-          <tr>
-            <td style="padding:8px">Date</td>
-            <td>${new Date().toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</td>
-          </tr>
-        </table>
-        <a href="https://boldmind.ng/dashboard"
-           style="background:#6d28d9;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:24px">
-          View Dashboard
-        </a>
-      </div>`;
   }
 }

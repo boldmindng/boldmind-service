@@ -1,11 +1,13 @@
-
 ```
 boldmind-service
 ├─ .npmrc
+├─ Dockerfile
+├─ PLANAI-GES.md
+├─ README.md
+├─ TEST.TS
 ├─ boldmind-service-canonical.md
 ├─ boldmind-service-project-tree.md
 ├─ boldmind-system-design-v2.md
-├─ Dockerfile
 ├─ nest-cli.json
 ├─ package.json
 ├─ pnpm-lock.yaml
@@ -27,8 +29,8 @@ boldmind-service
 │  ├─ schema.prisma
 │  └─ seed.ts
 ├─ prisma.config.ts
+├─ project-manager.service.ts
 ├─ railway.toml
-├─ README.md
 ├─ redis setup.md
 ├─ src
 │  ├─ app.module.ts
@@ -229,6 +231,7 @@ boldmind-service
 │  │  │  │  ├─ biz-intel.service.ts
 │  │  │  │  ├─ brand-home.service.ts
 │  │  │  │  ├─ fitness-center.service.ts
+│  │  │  │  ├─ gas-webhook.service.ts
 │  │  │  │  ├─ hr-payroll.service.ts
 │  │  │  │  ├─ investor-kit.service.ts
 │  │  │  │  ├─ marketing-auto.service.ts
@@ -299,7 +302,6 @@ boldmind-service
 │  │     └─ wallet.service.ts
 │  └─ types
 │     └─ express-multer.d.ts
-├─ TEST.TS
 ├─ tsconfig.build.json
 └─ tsconfig.json
 

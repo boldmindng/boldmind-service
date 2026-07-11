@@ -1,17 +1,17 @@
 // src/modules/notification/notification.service.ts
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { InjectQueue } from '@nestjs/bullmq';
-import { HttpService } from '@nestjs/axios';
-import { Queue } from 'bullmq';
-import { Resend } from 'resend';
-import { firstValueFrom } from 'rxjs';
-import * as webpush from 'web-push';
-import { PrismaService } from '../../database/prisma.service';
-import { SendEmailDto } from './dto/send-email.dto';
-import { SendPushDto } from './dto/send-push.dto';
-import { NotificationType } from '@prisma/client';
-import { QUEUES, JOBS } from '../../common/constants/queues';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { InjectQueue } from "@nestjs/bullmq";
+import { HttpService } from "@nestjs/axios";
+import { Queue } from "bullmq";
+import { Resend } from "resend";
+import { firstValueFrom } from "rxjs";
+import * as webpush from "web-push";
+import { PrismaService } from "../../database/prisma.service";
+import { SendEmailDto } from "./dto/send-email.dto";
+import { SendPushDto } from "./dto/send-push.dto";
+import { NotificationType } from "@prisma/client";
+import { QUEUES, JOBS } from "../../common/constants/queues";
 
 @Injectable()
 export class NotificationService {
@@ -20,7 +20,7 @@ export class NotificationService {
   private readonly fromEmail: string;
 
   // WhatsApp Graph API
-  private readonly metaApiVersion = 'v19.0';
+  private readonly metaApiVersion = "v19.0";
   private readonly defaultWaToken: string;
 
   constructor(
@@ -30,14 +30,17 @@ export class NotificationService {
     @InjectQueue(QUEUES.EMAIL_NOTIFICATIONS) private emailQueue: Queue,
     @InjectQueue(QUEUES.PUSH_NOTIFICATIONS) private pushQueue: Queue,
   ) {
-    this.resend = new Resend(this.config.get<string>('RESEND_API_KEY'));
-    this.fromEmail = this.config.get<string>('RESEND_FROM_EMAIL', 'hello@boldmind.ng');
-    this.defaultWaToken = this.config.get<string>('META_WHATSAPP_TOKEN', '');
+    this.resend = new Resend(this.config.get<string>("RESEND_API_KEY"));
+    this.fromEmail = this.config.get<string>(
+      "RESEND_FROM_EMAIL",
+      "hello@boldmind.ng",
+    );
+    this.defaultWaToken = this.config.get<string>("META_WHATSAPP_TOKEN", "");
 
     webpush.setVapidDetails(
       `mailto:${this.fromEmail}`,
-      this.config.getOrThrow<string>('VAPID_PUBLIC_KEY'),
-      this.config.getOrThrow<string>('VAPID_PRIVATE_KEY'),
+      this.config.getOrThrow<string>("VAPID_PUBLIC_KEY"),
+      this.config.getOrThrow<string>("VAPID_PRIVATE_KEY"),
     );
   }
 
@@ -65,7 +68,7 @@ export class NotificationService {
 
       return result;
     } catch (err) {
-      this.logger.error('Resend email failed', err);
+      this.logger.error("Resend email failed", err);
       throw err;
     }
   }
@@ -83,7 +86,7 @@ export class NotificationService {
   async sendPasswordResetEmail(email: string, resetUrl: string) {
     return this.sendEmail({
       to: email,
-      subject: 'Reset Your BoldMind Password',
+      subject: "Reset Your BoldMind Password",
       html: this.buildPasswordResetTemplate(resetUrl),
       text: `Reset your password here: ${resetUrl}`,
     });
@@ -92,13 +95,87 @@ export class NotificationService {
   async sendOtpEmail(email: string, otp: string) {
     return this.sendEmail({
       to: email,
-      subject: 'Your BoldMind OTP Code',
+      subject: "Your BoldMind OTP Code",
       html: `<p>Your one-time code is: <strong>${otp}</strong>. It expires in 10 minutes.</p>`,
       text: `Your OTP is ${otp}. Expires in 10 minutes.`,
     });
   }
 
-  async sendPaymentReceiptEmail(userId: string, email: string, amount: number, plan: string) {
+  /**
+   * Unified OTP dispatch — WhatsApp first, SMS fallback, email as last resort.
+   *
+   * KNOWN GAP: this service has no Termii (SMS) or dedicated OTP-template
+   * WhatsApp provider wired in yet — see @boldmindng/sms in
+   * boldmind-system-design-v2.md §5. Until that package is integrated here:
+   *   1. Attempts WhatsApp via the existing sendWhatsapp() Graph API call
+   *      (best-effort — not using an approved "boldmind_otp" auth template).
+   *   2. Falls back to email OTP if WhatsApp fails, since there is no SMS
+   *      provider configured yet.
+   * TODO(Wave 1): swap in OTPService from @boldmindng/sms and route through
+   * QUEUES.SMS_OTP instead of sending synchronously.
+   */
+  async sendOtp(dto: {
+    to: string;
+    code: string;
+    purpose: string;
+    name?: string;
+    preferChannel?: "whatsapp" | "sms" | "email";
+  }): Promise<{
+    delivered: boolean;
+    channel: "whatsapp" | "sms" | "email";
+    error?: string;
+  }> {
+    const isNigerianPhone = dto.to.startsWith("+234");
+    const wantsWhatsapp =
+      dto.preferChannel !== "email" &&
+      dto.preferChannel !== "sms" &&
+      isNigerianPhone;
+    const phoneNumberId = this.config.get<string>(
+      "META_WHATSAPP_PHONE_NUMBER_ID",
+    );
+
+    if (wantsWhatsapp && phoneNumberId) {
+      try {
+        await this.sendWhatsapp(
+          phoneNumberId,
+          dto.to,
+          `Hi ${dto.name ?? "there"}, your BoldMind code is: ${dto.code}. It expires in 15 minutes. Do not share it with anyone.`,
+        );
+        return { delivered: true, channel: "whatsapp" };
+      } catch (err) {
+        this.logger.warn(
+          `OTP WhatsApp delivery failed for ${dto.to}, falling back to email`,
+          err as Error,
+        );
+      }
+    }
+
+    // No SMS provider wired yet (Termii not integrated) — email is the only reliable fallback.
+    try {
+      const emailTarget = dto.to.includes("@") ? dto.to : null;
+      if (!emailTarget) {
+        throw new Error(
+          "No SMS provider configured and recipient is a phone number, not an email — cannot deliver OTP",
+        );
+      }
+      await this.sendOtpEmail(emailTarget, dto.code);
+      return { delivered: true, channel: "email" };
+    } catch (err) {
+      return { delivered: false, channel: "email", error: String(err) };
+    }
+  }
+
+  /** Returns the VAPID public key so the frontend can call PushManager.subscribe(). */
+  getVapidPublicKey(): { publicKey: string } {
+    return { publicKey: this.config.getOrThrow<string>("VAPID_PUBLIC_KEY") };
+  }
+
+  async sendPaymentReceiptEmail(
+    userId: string,
+    email: string,
+    amount: number,
+    plan: string,
+  ) {
     return this.sendEmail({
       userId,
       to: email,
@@ -120,17 +197,20 @@ export class NotificationService {
     message: string,
     accessToken?: string,
   ) {
+    const resolvedPhoneNumberId =
+      phoneNumberId ||
+      this.config.getOrThrow<string>("META_WHATSAPP_PHONE_NUMBER_ID");
     const token = accessToken ?? this.defaultWaToken;
-    const url = `https://graph.facebook.com/${this.metaApiVersion}/${phoneNumberId}/messages`;
+    const url = `https://graph.facebook.com/${this.metaApiVersion}/${resolvedPhoneNumberId}/messages`;
 
     try {
       const { data } = await firstValueFrom(
         this.http.post(
           url,
           {
-            messaging_product: 'whatsapp',
+            messaging_product: "whatsapp",
             to,
-            type: 'text',
+            type: "text",
             text: { body: message },
           },
           { headers: { Authorization: `Bearer ${token}` } },
@@ -139,9 +219,13 @@ export class NotificationService {
 
       await this.logNotification({
         type: NotificationType.WHATSAPP,
-        title: 'WhatsApp Message',
+        title: "WhatsApp Message",
         body: message,
-        meta: { to, phoneNumberId, messageId: data?.messages?.[0]?.id },
+        meta: {
+          to,
+          phoneNumberId: resolvedPhoneNumberId,
+          messageId: data?.messages?.[0]?.id,
+        },
       });
 
       return data;
@@ -184,8 +268,8 @@ export class NotificationService {
     const payload = JSON.stringify({
       title: dto.title,
       body: dto.body,
-      icon: dto.icon ?? '/icons/icon-192.png',
-      badge: '/icons/badge-72.png',
+      icon: dto.icon ?? "/icons/icon-192.png",
+      badge: "/icons/badge-72.png",
       data: dto.data,
       url: dto.url,
     });
@@ -202,7 +286,7 @@ export class NotificationService {
     // Clean up stale subscriptions (410 Gone / 404 Not Found)
     await Promise.allSettled(
       results.map(async (r, i) => {
-        if (r.status === 'rejected') {
+        if (r.status === "rejected") {
           const statusCode = (r.reason as any)?.statusCode;
           if (statusCode === 410 || statusCode === 404) {
             await this.prisma.pushSubscription.deleteMany({
@@ -220,7 +304,7 @@ export class NotificationService {
       body: dto.body,
     });
 
-    const sent = results.filter((r) => r.status === 'fulfilled').length;
+    const sent = results.filter((r) => r.status === "fulfilled").length;
     return { sent, total: subs.length };
   }
 
@@ -233,20 +317,20 @@ export class NotificationService {
     icon?: string;
   }) {
     await this.pushQueue.add(JOBS.PUSH.BROADCAST, dto);
-    return { message: 'Broadcast queued' };
+    return { message: "Broadcast queued" };
   }
 
   async broadcastEmail(
     subject: string,
     html: string,
-    segment?: 'all' | 'pro' | 'free',
+    segment?: "all" | "pro" | "free",
   ) {
     await this.emailQueue.add(JOBS.EMAIL.BROADCAST, {
       subject,
       html,
-      segment: segment ?? 'all',
+      segment: segment ?? "all",
     });
-    return { message: 'Email broadcast queued' };
+    return { message: "Email broadcast queued" };
   }
 
   // ─── IN-APP NOTIFICATIONS ────────────────────────────────────────────────────
@@ -256,7 +340,7 @@ export class NotificationService {
     const [data, total, unread] = await this.prisma.$transaction([
       this.prisma.notification.findMany({
         where: { userId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         skip,
         take: limit,
       }),
@@ -277,12 +361,12 @@ export class NotificationService {
       where,
       data: { read: true, readAt: new Date() },
     });
-    return { message: 'Marked as read' };
+    return { message: "Marked as read" };
   }
 
   async deleteNotification(userId: string, id: string) {
     await this.prisma.notification.deleteMany({ where: { id, userId } });
-    return { message: 'Deleted' };
+    return { message: "Deleted" };
   }
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -307,7 +391,7 @@ export class NotificationService {
         });
       }
     } catch (e) {
-      this.logger.warn('Failed to log notification', e);
+      this.logger.warn("Failed to log notification", e);
     }
   }
 
@@ -355,7 +439,7 @@ export class NotificationService {
           </tr>
           <tr>
             <td style="padding:8px">Date</td>
-            <td>${new Date().toLocaleDateString('en-NG', { timeZone: 'Africa/Lagos' })}</td>
+            <td>${new Date().toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</td>
           </tr>
         </table>
         <a href="https://boldmind.ng/dashboard"

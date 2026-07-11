@@ -10,7 +10,6 @@ import { NotificationService } from "./notification.service";
 import { EmailBroadcastProcessor } from "./processors/email-broadcast.processor";
 import { PushBroadcastProcessor } from "./processors/push-broadcast.processor";
 import { OTPService } from "@boldmindng/sms";
-import { ResendOtpEmailProvider } from "./providers/resend-otp-email.provider";
 import { QUEUES } from "../../common/constants/queues";
 
 export const OTP_SERVICE = Symbol("OTP_SERVICE");
@@ -57,7 +56,6 @@ export const OTP_SERVICE = Symbol("OTP_SERVICE");
             apiKey: config.get<string>("TERMII_API_KEY", ""),
             senderId: config.get<string>("TERMII_SENDER_ID", "BOLDMIND"),
           },
-          emailProvider: new ResendOtpEmailProvider(resend, fromEmail),
         });
       },
     },

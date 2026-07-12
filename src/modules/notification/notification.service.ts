@@ -6,6 +6,7 @@ import { HttpService } from "@nestjs/axios";
 import { Queue } from "bullmq";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
+import * as React from "react";
 import { firstValueFrom } from "rxjs";
 import * as webpush from "web-push";
 import { PrismaService } from "../../database/prisma.service";
@@ -21,23 +22,7 @@ import type {
   OTPDeliveryLog,
 } from "@boldmindng/sms";
 import { Inject } from "@nestjs/common";
-import { OTP_SERVICE } from "./notification.module";
-import * as React from "react";
-
-/**
- * Wraps @react-email/render + React.createElement together.
- * Needed because React 19's widened ReactNode (which now includes
- * `Promise<ReactNode>` for async components) doesn't satisfy
- * @react-email/render's `render(element: ReactElement)` signature when a
- * component is invoked as a plain function call. createElement's return
- * type is always a concrete ReactElement, sidestepping the mismatch.
- */
-function renderEmail<P extends object>(
-  Component: (props: P) => React.ReactNode,
-  props: P,
-): Promise<string> {
-  return render(React.createElement(Component, props));
-}
+import { OTP_SERVICE } from "./notification.tokens";
 
 // ── @boldmindng/email — shared React Email templates (replaces hand-rolled HTML) ──
 // Prop shapes below match the ACTUAL components in packages/email/src/templates/*.tsx:
@@ -135,8 +120,11 @@ export class NotificationService {
   // HTML via @react-email/render using the component's REAL prop names, then
   // reuses sendEmail()'s Resend + logging path.
 
+  /** Sent after registration completes — welcomes the user into the ecosystem. */
   async sendWelcomeEmail(userId: string, name: string, email: string) {
-    const html = await renderEmail(WelcomeEmail, { fullName: name });
+    const html = await render(
+      React.createElement(WelcomeEmail, { fullName: name }),
+    );
     return this.sendEmail({
       userId,
       to: email,
@@ -146,12 +134,15 @@ export class NotificationService {
     });
   }
 
+  /** Sent on POST /auth/forgot-password. */
   async sendPasswordResetEmail(
     email: string,
     resetUrl: string,
     fullName?: string,
   ) {
-    const html = await renderEmail(ResetPasswordEmail, { fullName, resetUrl });
+    const html = await render(
+      React.createElement(ResetPasswordEmail, { fullName, resetUrl }),
+    );
     return this.sendEmail({
       to: email,
       subject: "Reset Your BoldMind Password",
@@ -160,11 +151,11 @@ export class NotificationService {
     });
   }
 
+  /** Email-channel OTP delivery — used for `email_verify` purpose (phone-only channels can't serve that). */
   async sendOtpEmail(email: string, otp: string, fullName = "there") {
-    const html = await renderEmail(VerifyEmail, {
-      fullName,
-      verificationCode: otp,
-    });
+    const html = await render(
+      React.createElement(VerifyEmail, { fullName, verificationCode: otp }),
+    );
     return this.sendEmail({
       to: email,
       subject: "Your BoldMind OTP Code",
@@ -173,6 +164,7 @@ export class NotificationService {
     });
   }
 
+  /** Sent on `charge.success` webhook once a subscription is activated. */
   async sendSubscriptionStartedEmail(
     userId: string,
     email: string,
@@ -180,11 +172,9 @@ export class NotificationService {
     plan: string,
     product: string,
   ) {
-    const html = await renderEmail(SubscriptionStarted, {
-      name,
-      plan,
-      product,
-    });
+    const html = await render(
+      React.createElement(SubscriptionStarted, { name, plan, product }),
+    );
     return this.sendEmail({
       userId,
       to: email,
@@ -194,8 +184,11 @@ export class NotificationService {
     });
   }
 
+  /** Used by hub/waitlist controllers on `POST /hub/waitlist/:productSlug`. */
   async sendWaitlistJoinedEmail(email: string, concept: string) {
-    const html = await renderEmail(WaitlistJoined, { email, concept });
+    const html = await render(
+      React.createElement(WaitlistJoined, { email, concept }),
+    );
     return this.sendEmail({
       to: email,
       subject: `You're on the ${concept} waitlist — VillageCircle NG`,
@@ -204,12 +197,15 @@ export class NotificationService {
     });
   }
 
+  /** Used by the SSO exchange flow when a user's first cross-domain login lands on an external app. */
   async sendSsoWelcomeExternalEmail(
     email: string,
     name: string,
     domain: string,
   ) {
-    const html = await renderEmail(SsoWelcomeExternal, { name, domain });
+    const html = await render(
+      React.createElement(SsoWelcomeExternal, { name, domain }),
+    );
     return this.sendEmail({
       to: email,
       subject: "You signed in to a new BoldmindNG app",
@@ -218,8 +214,11 @@ export class NotificationService {
     });
   }
 
+  /** Sent when a VibeCoderApplicant transitions to ACCEPTED (see PATCH .../applicants/:id/accept). */
   async sendVibeCodersAcceptedEmail(email: string, fullName: string) {
-    const html = await renderEmail(VibeCodersAccepted, { fullName });
+    const html = await render(
+      React.createElement(VibeCodersAccepted, { fullName }),
+    );
     return this.sendEmail({
       to: email,
       subject: "Your Vibe Coders application was accepted 🚀",

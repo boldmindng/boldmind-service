@@ -1,8 +1,8 @@
 // src/modules/notification/notification.module.ts
 import { Module } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { HttpModule } from "@nestjs/axios";
 import { BullModule } from "@nestjs/bullmq";
-import { ConfigService } from "@nestjs/config";
 import { Resend } from "resend";
 import { DatabaseModule } from "../../database/database.module";
 import { NotificationController } from "./notification.controller";
@@ -10,9 +10,13 @@ import { NotificationService } from "./notification.service";
 import { EmailBroadcastProcessor } from "./processors/email-broadcast.processor";
 import { PushBroadcastProcessor } from "./processors/push-broadcast.processor";
 import { OTPService } from "@boldmindng/sms";
+import { ResendOtpEmailProvider } from "./providers/resend-otp-email.provider";
+import { OTP_SERVICE } from "./notification.tokens";
 import { QUEUES } from "../../common/constants/queues";
 
-export const OTP_SERVICE = Symbol("OTP_SERVICE");
+// Note: ConfigModule is not re-imported here — it's registered with
+// isGlobal: true in app.module.ts, so ConfigService is already injectable
+// everywhere without a local import.
 
 @Module({
   imports: [
@@ -32,18 +36,21 @@ export const OTP_SERVICE = Symbol("OTP_SERVICE");
       provide: OTP_SERVICE,
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        // OTPService (packages/sms/src/otp.service.ts) constructs its own
-        // WhatsAppProvider + TermiiProvider internally from a single
-        // OTPServiceConfig — it does NOT accept provider instances as
-        // positional args. emailProvider is the one piece it can't build
-        // itself (by design, to stay decoupled from @boldmindng/email),
-        // so we inject the Resend-backed adapter here.
         const resend = new Resend(config.get<string>("RESEND_API_KEY"));
         const fromEmail = config.get<string>(
           "RESEND_FROM_EMAIL",
           "hello@boldmind.ng",
         );
 
+        // OTPServiceConfig (packages/sms/src/types.ts) is EXACTLY:
+        //   { whatsapp: WhatsAppProviderConfig,
+        //     termii:   TermiiProviderConfig,
+        //     emailProvider?: EmailOTPProvider }
+        //
+        // There is no `sms` or `email` key on that type — OTPService builds
+        // its own WhatsAppProvider/TermiiProvider internally from `whatsapp`
+        // and `termii`; the only thing it can't build itself is the email
+        // fallback, which is why `emailProvider` is the one piece we inject.
         return new OTPService({
           whatsapp: {
             phoneNumberId: config.get<string>(
@@ -56,6 +63,7 @@ export const OTP_SERVICE = Symbol("OTP_SERVICE");
             apiKey: config.get<string>("TERMII_API_KEY", ""),
             senderId: config.get<string>("TERMII_SENDER_ID", "BOLDMIND"),
           },
+          emailProvider: new ResendOtpEmailProvider(resend, fromEmail),
         });
       },
     },

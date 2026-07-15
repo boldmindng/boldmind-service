@@ -21,20 +21,20 @@ importers:
         specifier: ^3.1007.0
         version: 3.1073.0
       '@boldmindng/analytics':
-        specifier: 11.0.0
-        version: 11.0.0(@boldmindng/utils@9.0.0(react@19.2.0))(react@19.2.0)
+        specifier: 13.0.0
+        version: 13.0.0(@boldmindng/utils@10.1.0(react@19.2.0))(react@19.2.0)
       '@boldmindng/deploy-config':
-        specifier: 1.0.0
-        version: 1.0.0(react@19.2.0)
+        specifier: 1.1.0
+        version: 1.1.0(react@19.2.0)
       '@boldmindng/email':
-        specifier: 6.0.0
-        version: 6.0.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+        specifier: 6.1.0
+        version: 6.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@boldmindng/sms':
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 1.1.0
+        version: 1.1.0
       '@boldmindng/utils':
-        specifier: 9.0.0
-        version: 9.0.0(react@19.2.0)
+        specifier: 10.1.0
+        version: 10.1.0(react@19.2.0)
       '@fal-ai/client':
         specifier: ^1.10.0
         version: 1.10.1
@@ -437,38 +437,32 @@ packages:
     resolution: {integrity: sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA==}
     engines: {node: '>=6.9.0'}
 
-  '@boldmindng/analytics@11.0.0':
-    resolution: {integrity: sha512-rhfzSvhX06s2wBCvKD4QNjFyX7eF7S3tjNH290uy32C9aFVNrumEGQInjKAN7y63VkOd9GTCJ+NSPsrnpOAKhg==, tarball: https://npm.pkg.github.com/download/@boldmindng/analytics/11.0.0/9afed5bf8d6271ee9040063d26fca012315535f7}
+  '@boldmindng/analytics@13.0.0':
+    resolution: {integrity: sha512-UlGNAVJReTrObdEAViPgmZkBsKBjwN5iBqo1bzVMfkAbJtdL3G0erb+dazd48WDXFOzvjvUjj8E3VVcoLB0vWQ==, tarball: https://npm.pkg.github.com/download/@boldmindng/analytics/13.0.0/f9e63e12575d8c6a853bd2c46410c1e286a41ae4}
     peerDependencies:
-      '@boldmindng/utils': 9.0.0
+      '@boldmindng/utils': 10.1.0
       react: 19.2.0
-    peerDependenciesMeta:
-      react:
-        optional: true
 
-  '@boldmindng/deploy-config@1.0.0':
-    resolution: {integrity: sha512-RRu5buN2R5963+JWTclkmCeUbDiYHsNh9bPRjQVhmFxWGMkCLW26cl0XitJ0kIHIwN0LcT0NXS5nOWPpvW013w==, tarball: https://npm.pkg.github.com/download/@boldmindng/deploy-config/1.0.0/9b2fc7475c75c96d83b7950474b4e97bba54889d}
+  '@boldmindng/deploy-config@1.1.0':
+    resolution: {integrity: sha512-So4q6GHQPfAfEU7aVYRYxaMfU9Na+KJMVS6Fpm9qyYaCaHqvBEdlcDOFtsZtzQp22XWu8DksChNPQArFRrjbDQ==, tarball: https://npm.pkg.github.com/download/@boldmindng/deploy-config/1.1.0/594b1f28230c2e1a5ef2e5a3b6fb134e7c3ca2d0}
     engines: {node: '>=22.22.3'}
     hasBin: true
 
-  '@boldmindng/email@6.0.0':
-    resolution: {integrity: sha512-7DhHkHmrUf5Y5KnNhbGxz1KxvxxVG1Vq+5pO0nJ1sbbCOg1acm7JS+5o7f83t80WLelCWiFwloFY85EX+9laXg==, tarball: https://npm.pkg.github.com/download/@boldmindng/email/6.0.0/e7d9dd24c6f556630f72fe006a502ee5463173d6}
+  '@boldmindng/email@6.1.0':
+    resolution: {integrity: sha512-rsxsyAr0reisIUSxdVTDEtpequQlP935lvhltHtrpTYRLDZ96p6NCKChpnr1mB+lWD5hV4cxbbYxrUzP3GRFrQ==, tarball: https://npm.pkg.github.com/download/@boldmindng/email/6.1.0/66b39678a7dec0002a24c097c33d5594da1a9230}
     peerDependencies:
       react: 19.2.0
       react-dom: 19.2.0
 
-  '@boldmindng/sms@1.0.0':
-    resolution: {integrity: sha512-gRzvlDEo8hi/MS3ZmET2FG7gRMKc+qB64lchGIvb3XXiS1uOj6jZG8SERT5bDFN4yCE8/dKpr/+PhwufQJXCKQ==, tarball: https://npm.pkg.github.com/download/@boldmindng/sms/1.0.0/96dbf4116651926c10672a611fef3bcbe77e41e2}
+  '@boldmindng/sms@1.1.0':
+    resolution: {integrity: sha512-heqdC3wivGA39v7GVns599TDt+rm7UcPiACMDD2qFIXfChfrIsl7pz8TX/VxUwsF92PI5a0qMI5CvzRsnbDeJg==, tarball: https://npm.pkg.github.com/download/@boldmindng/sms/1.1.0/a2635aa3505094f3db4f3a611c56b720f3bcc553}
     engines: {node: '>=22.22.3'}
 
-  '@boldmindng/utils@9.0.0':
-    resolution: {integrity: sha512-u9ObLLA1cEhp5d8TNG4YAXBzlPoJ5Vnk1KIMjJEwFpAkJTkRbs4CxBbf5MQsU/mdcw0aX+iRNnt23h+ZUWSwEA==, tarball: https://npm.pkg.github.com/download/@boldmindng/utils/9.0.0/251541a3a5d834eaa4b38f8d530e763a91dad216}
+  '@boldmindng/utils@10.1.0':
+    resolution: {integrity: sha512-7MmnZiczbVbptnff/2I7vr4RyPgjqI61O8CK5SgqPxMjrsB0wC9AfUkoSPB39/JcmX1GoX0Q8NgffB7d0A/ZnA==, tarball: https://npm.pkg.github.com/download/@boldmindng/utils/10.1.0/022c27c79fb3776c311675baab3f4a2290d10d56}
     engines: {node: '>=22.22.3'}
     peerDependencies:
       react: 19.2.0
-    peerDependenciesMeta:
-      react:
-        optional: true
 
   '@borewit/text-codec@0.2.2':
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
@@ -4445,23 +4439,22 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@boldmindng/analytics@11.0.0(@boldmindng/utils@9.0.0(react@19.2.0))(react@19.2.0)':
+  '@boldmindng/analytics@13.0.0(@boldmindng/utils@10.1.0(react@19.2.0))(react@19.2.0)':
     dependencies:
-      '@boldmindng/utils': 9.0.0(react@19.2.0)
+      '@boldmindng/utils': 10.1.0(react@19.2.0)
       mixpanel-browser: 2.80.0
       posthog-js: 1.391.2
-    optionalDependencies:
       react: 19.2.0
 
-  '@boldmindng/deploy-config@1.0.0(react@19.2.0)':
+  '@boldmindng/deploy-config@1.1.0(react@19.2.0)':
     dependencies:
-      '@boldmindng/utils': 9.0.0(react@19.2.0)
+      '@boldmindng/utils': 10.1.0(react@19.2.0)
       '@types/node': 22.20.0
       zod: 3.25.76
     transitivePeerDependencies:
       - react
 
-  '@boldmindng/email@6.0.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+  '@boldmindng/email@6.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       '@react-email/render': 2.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       react: 19.2.0
@@ -4473,14 +4466,13 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@boldmindng/sms@1.0.0': {}
+  '@boldmindng/sms@1.1.0': {}
 
-  '@boldmindng/utils@9.0.0(react@19.2.0)':
+  '@boldmindng/utils@10.1.0(react@19.2.0)':
     dependencies:
       '@types/node': 22.20.0
       date-fns: 3.6.0
       date-fns-tz: 3.2.0(date-fns@3.6.0)
-    optionalDependencies:
       react: 19.2.0
 
   '@borewit/text-codec@0.2.2': {}

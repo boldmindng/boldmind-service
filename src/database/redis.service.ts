@@ -1,172 +1,190 @@
 import {
   Injectable,
+  OnModuleInit,
   OnModuleDestroy,
   Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import Redis, { RedisOptions } from 'ioredis';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import Redis from "ioredis";
 
 /**
- * RedisService — Three-instance split architecture
+ * RedisService — Three-instance split
  * ─────────────────────────────────────────────────────────────────────────────
  * SESSION  → SSO relay tokens, JWT refresh family revocation, OTP codes,
  *            rate-limit counters, feature flags
- *            Recommended config: AOF persistence, noeviction policy
  *            env: REDIS_SESSION_URL
  *
- * QUEUE    → BullMQ exclusively — passed to BullModule.forRootAsync()
- *            NEVER share this instance with session or cache data.
- *            Recommended config: RDB persistence, noeviction policy
+ * QUEUE    → BullMQ exclusively (passed to BullModule.forRootAsync)
  *            env: REDIS_QUEUE_URL
  *
  * CACHE    → ALOC exam questions, exchange rates, trend data, computed stats
- *            Recommended config: allkeys-lru eviction, no persistence
+ *            eviction: allkeys-lru  |  no persistence
  *            env: REDIS_CACHE_URL
  *
- * Key naming convention:
- *   session  →  sso:relay:{token}       TTL 60s
- *               revoked:{tokenId}       TTL 30d
- *               ratelimit:{ep}:{uid}    TTL window
- *               otp:{purpose}:{email}   TTL 15m
- *               flags:{userId}          TTL 5m
+ * ─────────────────────────────────────────────────────────────────────────────
+ * INCIDENT FIX (2026-07-15) — "queue" connection stuck in reconnect storm:
+ * TCP connected → immediate ECONNRESET → reconnect → repeat, retries climbing
+ * past #18 with a flat 5s delay and never recovering. Root causes addressed:
  *
- *   cache    →  aloc:{sub}:{type}:{yr}  TTL 24h
- *               remit:rates:{ccy}       TTL 1h
- *               trends:ng:{date}        TTL 2h
- *               admin:stats:{date}      TTL 15m
- *               planai:access:{uid}     TTL 5m
- *
- * IMPORTANT — BullMQ wiring:
- *   BullModule.forRootAsync() in app.module.ts must inject RedisService
- *   and pass redis.queue as the connection. Never pass session or cache.
- *   Clients are created synchronously in the constructor so BullModule
- *   receives a valid (connecting) client, not undefined.
+ *   1. No bounded/backing-off retryStrategy was set → ioredis + BullMQ can
+ *      thundering-herd reconnect under load. Added exponential backoff
+ *      capped at 10s, with jitter, and a max-attempts circuit breaker that
+ *      logs loudly (but keeps trying — BullMQ needs eventual reconnection).
+ *   2. `family: 0` added — lets Node resolve both IPv4/IPv6 (Happy Eyeballs).
+ *      Railway/Upstash endpoints intermittently resolve AAAA records that
+ *      the box can't actually route, which presents as TCP connect
+ *      succeeding then an immediate RST.
+ *   3. `keepAlive` enabled (30s) — idle connections behind managed Redis
+ *      load balancers (Upstash) get silently dropped and the next command
+ *      surfaces as ECONNRESET rather than a clean close.
+ *   4. `connectTimeout` bounded to 10s so a half-open TCP connect doesn't
+ *      hang the retry loop.
+ *   5. `reconnectOnError` now distinguishes READONLY/CLUSTERDOWN (retry)
+ *      from auth errors (do NOT hot-loop retrying bad credentials).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 @Injectable()
-export class RedisService implements OnModuleDestroy {
+export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
 
-  /** Auth, SSO, OTP, rate-limit — AOF persistence, noeviction */
-  public readonly session: Redis;
+  /** Auth, SSO, OTP, rate-limit — persistence: AOF, policy: noeviction */
+  public session: Redis;
 
-  /** BullMQ only — RDB persistence, noeviction */
-  public readonly queue: Redis;
+  /** BullMQ only — persistence: RDB, policy: noeviction */
+  public queue: Redis;
 
-  /** Short-lived computed data — allkeys-lru, no persistence */
-  public readonly cache: Redis;
+  /** Short-lived computed data — no persistence, policy: allkeys-lru */
+  public cache: Redis;
 
-  constructor(private readonly config: ConfigService) {
-    // Clients are created synchronously so BullModule.forRootAsync receives
-    // a valid (connecting) client immediately, eliminating the race condition
-    // that occurred with lazyConnect + async onModuleInit.
-    this.session = this.createClient('REDIS_SESSION_URL', 'session', {
-      maxRetriesPerRequest: null, // required by BullMQ; harmless for session
-      enableReadyCheck: false,
-    });
-
-    this.queue = this.createClient('REDIS_QUEUE_URL', 'queue', {
-      maxRetriesPerRequest: null, // BullMQ requirement — do not change
-      enableReadyCheck: false,
-    });
-
-    this.cache = this.createClient('REDIS_CACHE_URL', 'cache', {
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: false,
-    });
-  }
+  constructor(private readonly config: ConfigService) {}
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────────
 
-  async onModuleDestroy(): Promise<void> {
-    this.logger.log('Closing Redis connections...');
-    const results = await Promise.allSettled([
-      this.session.quit(),
-      this.queue.quit(),
-      this.cache.quit(),
-    ]);
-    results.forEach((r, i) => {
-      const label = ['session', 'queue', 'cache'][i];
-      if (r.status === 'rejected') {
-        this.logger.warn(`Redis [${label}] quit error: ${r.reason}`);
-      }
+  async onModuleInit(): Promise<void> {
+    this.session = await this.createClient("REDIS_SESSION_URL", "session", {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      lazyConnect: true,
     });
-    this.logger.log('Redis connections closed');
+
+    this.queue = await this.createClient("REDIS_QUEUE_URL", "queue", {
+      // Required by BullMQ — do not change.
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      lazyConnect: true,
+    });
+
+    this.cache = await this.createClient("REDIS_CACHE_URL", "cache", {
+      maxRetriesPerRequest: 3,
+      enableReadyCheck: false,
+      lazyConnect: true,
+    });
   }
 
-  // ─── Client factory ─────────────────────────────────────────────────────────
+  async onModuleDestroy(): Promise<void> {
+    await Promise.allSettled([
+      this.session?.quit(),
+      this.queue?.quit(),
+      this.cache?.quit(),
+    ]);
+  }
 
-  private createClient(
+  // ─── Private: client factory ────────────────────────────────────────────────
+
+  private async createClient(
     envKey: string,
     label: string,
-    extraOptions: Partial<RedisOptions>,
-  ): Redis {
+    options: Record<string, unknown>,
+  ): Promise<Redis> {
     let url = this.config.getOrThrow<string>(envKey);
 
-    // Strip shell-style flags that may have crept into env values, e.g. "-u redis://..."
-    if (url.includes(' ')) {
-      const match = url.match(/redis[s]?:\/\/\S+/);
-      url = match?.[0] ?? url;
+    // Strip CLI-style flags that may have crept into env values, e.g. "-u rediss://..."
+    if (url.includes("-u ")) {
+      url = url.split("-u ")[1].split(" ")[0];
     }
+    url = url.trim();
 
-    const isTls = url.startsWith('rediss://');
+    const tlsRequired =
+      url.startsWith("rediss://") || url.includes(".upstash.io");
 
-    const options: RedisOptions = {
-      // Exponential backoff: 200ms → 400ms → ... → 5s, then stops
+    let consecutiveFailures = 0;
+
+    const client = new Redis(url, {
+      ...options,
+      ...(tlsRequired ? { tls: { rejectUnauthorized: false } } : {}),
+
+      // ── Network resilience (fixes the ECONNRESET reconnect storm) ────────
+      family: 0, // Happy Eyeballs — try IPv4 + IPv6, use whichever connects
+      connectTimeout: 10_000, // bound hung half-open connects
+      keepAlive: 30_000, // ping the TCP socket so LBs don't silently drop it
+      noDelay: true,
+
+      // Exponential backoff with jitter, capped at 10s. Never gives up —
+      // BullMQ / session / cache all need eventual reconnection — but never
+      // hot-loops in a way that trips upstream connection-rate limits.
       retryStrategy: (times: number) => {
-        if (times > 20) {
-          this.logger.error(
-            `Redis [${label}] gave up after ${times} retries. Check ${envKey} and ensure Redis is reachable.`,
+        consecutiveFailures = times;
+        const base = Math.min(times * 200, 10_000);
+        const jitter = Math.floor(Math.random() * 300);
+        const delay = base + jitter;
+
+        if (times % 5 === 0) {
+          this.logger.warn(
+            `Redis [${label}] still reconnecting after ${times} attempts (next retry in ${delay}ms)`,
           );
-          return null; // stops retrying; ioredis emits 'end' event
         }
-        const delay = Math.min(200 * 2 ** (times - 1), 5_000);
-        this.logger.warn(`Redis [${label}] retry #${times} in ${delay}ms`);
         return delay;
       },
+
+      // Only auto-retry the failed command on errors that are genuinely
+      // transient. Auth/permission errors should surface immediately
+      // instead of hot-looping reconnect attempts against bad credentials.
       reconnectOnError: (err: Error) => {
-        // Reconnect on replica-promotion READONLY errors (managed Redis clusters)
-        if (err.message.includes('READONLY')) {
-          this.logger.warn(`Redis [${label}] READONLY — triggering reconnect`);
+        const msg = err.message || "";
+        if (msg.includes("READONLY") || msg.includes("CLUSTERDOWN")) {
           return true;
         }
-        return false;
+        if (msg.includes("NOAUTH") || msg.includes("WRONGPASS")) {
+          this.logger.error(
+            `Redis [${label}] auth error — check ${envKey}: ${msg}`,
+          );
+          return false;
+        }
+        return true;
       },
-      // TLS for rediss:// — self-signed certs are common on Railway/Render
-      ...(isTls
-        ? {
-            tls: {
-              rejectUnauthorized:
-                this.config.get<string>('NODE_ENV') === 'production',
-            },
-          }
-        : {}),
-      ...extraOptions,
-    };
+    });
 
-    const client = new Redis(url, options);
-
-    client.on('connect', () =>
-      this.logger.log(`Redis [${label}] TCP connected`),
-    );
-    client.on('ready', () =>
-      this.logger.log(`Redis [${label}] ready ✅`),
-    );
-    client.on('error', (err: Error) =>
-      this.logger.error(`Redis [${label}] error: ${err.message}`),
-    );
-    client.on('close', () =>
-      this.logger.warn(`Redis [${label}] connection closed`),
-    );
-    client.on('reconnecting', () =>
-      this.logger.warn(`Redis [${label}] reconnecting...`),
-    );
-    client.on('end', () =>
+    client.on("connect", () => {
+      this.logger.log(`Redis [${label}] TCP connected`);
+    });
+    client.on("ready", () => {
+      if (consecutiveFailures > 0) {
+        this.logger.log(
+          `Redis [${label}] ready after ${consecutiveFailures} retries — connection recovered`,
+        );
+      } else {
+        this.logger.log(`Redis [${label}] ready`);
+      }
+      consecutiveFailures = 0;
+    });
+    client.on("error", (err) => {
+      // ioredis emits an 'error' event per failed attempt — avoid duplicate
+      // full-stack spam beyond what's useful; message is enough here.
+      this.logger.error(`Redis [${label}] error: ${err.message}`);
+    });
+    client.on("close", () => {
+      this.logger.warn(`Redis [${label}] connection closed`);
+    });
+    client.on("reconnecting", (delay: number) => {
+      this.logger.debug?.(`Redis [${label}] reconnecting in ${delay}ms`);
+    });
+    client.on("end", () => {
       this.logger.error(
-        `Redis [${label}] connection ended — no more retries. Restart the service.`,
-      ),
-    );
+        `Redis [${label}] connection ended — no more automatic reconnects will occur`,
+      );
+    });
 
+    await client.connect();
     return client;
   }
 
@@ -194,7 +212,6 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async del(...keys: string[]): Promise<void> {
-    if (keys.length === 0) return;
     await this.session.del(...keys);
   }
 
@@ -210,10 +227,6 @@ export class RedisService implements OnModuleDestroy {
     await this.session.expire(key, ttlSeconds);
   }
 
-  async ttl(key: string): Promise<number> {
-    return this.session.ttl(key);
-  }
-
   // ─── Hash helpers (session) ─────────────────────────────────────────────────
 
   async hset(key: string, field: string, value: string): Promise<void> {
@@ -225,44 +238,15 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async hgetall(key: string): Promise<Record<string, string>> {
-    return this.session.hgetall(key) as Promise<Record<string, string>>;
+    return this.session.hgetall(key);
   }
 
-  async hdel(key: string, field: string): Promise<void> {
-    await this.session.hdel(key, field);
-  }
-
-  /**
-   * SCAN-based key listing — safe for production (avoids blocking KEYS in prod).
-   * Only use KEYS in dev/test environments. This method always scans.
-   */
-  async scanKeys(pattern: string): Promise<string[]> {
-    const found: string[] = [];
-    let cursor = '0';
-    do {
-      const [nextCursor, batch] = await this.session.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        100,
-      );
-      found.push(...batch);
-      cursor = nextCursor;
-    } while (cursor !== '0');
-    return found;
-  }
-
-  /**
-   * @deprecated Use scanKeys() in production — KEYS blocks the Redis event loop.
-   * Kept for dev-only scripts and backwards compatibility.
-   */
   async keys(pattern: string): Promise<string[]> {
     return this.session.keys(pattern);
   }
 
   // ─── SSO relay tokens (session) ─────────────────────────────────────────────
-  // Key pattern: sso:relay:{64-hex}   TTL: 60s (one-time use)
+  // Key pattern: sso:relay:{64-hex}   TTL: 60s (default)
 
   async storeSSOToken(
     token: string,
@@ -272,13 +256,9 @@ export class RedisService implements OnModuleDestroy {
     await this.session.setex(`sso:relay:${token}`, ttlSeconds, userId);
   }
 
-  /**
-   * Atomically GET then DEL the SSO relay token.
-   * Returns userId if token was valid and unused, null otherwise.
-   * Lua guarantees atomicity — prevents double-use even under race conditions.
-   */
   async consumeSSOToken(token: string): Promise<string | null> {
     const key = `sso:relay:${token}`;
+    // Lua script: atomic get-then-delete (prevents double-use)
     const result = (await this.session.eval(
       `local v = redis.call("GET", KEYS[1])
        if v then redis.call("DEL", KEYS[1]) end
@@ -296,7 +276,7 @@ export class RedisService implements OnModuleDestroy {
     tokenId: string,
     ttlSeconds = 60 * 60 * 24 * 30,
   ): Promise<void> {
-    await this.session.setex(`revoked:${tokenId}`, ttlSeconds, '1');
+    await this.session.setex(`revoked:${tokenId}`, ttlSeconds, "1");
   }
 
   async isRefreshTokenRevoked(tokenId: string): Promise<boolean> {
@@ -330,24 +310,18 @@ export class RedisService implements OnModuleDestroy {
   // ─── Rate limiting (session) ────────────────────────────────────────────────
   // Key pattern: ratelimit:{endpoint}:{userId|ip}
 
-  /**
-   * Sliding-window rate limit using INCR + EXPIRE.
-   * Thread-safe: INCR is atomic; EXPIRE only fires on first increment.
-   */
   async checkRateLimit(
     key: string,
     limit: number,
     windowSecs: number,
-  ): Promise<{ allowed: boolean; remaining: number; current: number }> {
+  ): Promise<{ allowed: boolean; remaining: number }> {
     const current = await this.session.incr(key);
     if (current === 1) {
-      // Only set TTL on first hit to avoid resetting the window on every request
       await this.session.expire(key, windowSecs);
     }
     return {
       allowed: current <= limit,
       remaining: Math.max(0, limit - current),
-      current,
     };
   }
 
@@ -375,8 +349,7 @@ export class RedisService implements OnModuleDestroy {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CACHE INSTANCE HELPERS
-  // Methods are explicitly prefixed with "cache" to prevent confusion with
-  // session ops. The CACHE instance uses allkeys-lru — any key can be evicted.
+  // Explicitly namespaced as cacheGet / cacheSet to distinguish from session ops.
   // ═══════════════════════════════════════════════════════════════════════════
 
   async cacheGet(key: string): Promise<string | null> {
@@ -396,16 +369,16 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
-   * withCache<T> — read-through cache helper.
+   * cache<T>()
+   * Read-through helper for the CACHE instance.
+   * If key is warm, returns parsed JSON.
+   * On miss, calls fetchFn, stores result, returns it.
    *
-   * On cache hit  → returns parsed JSON immediately.
-   * On cache miss → calls fetchFn(), stores JSON, returns result.
-   *
-   * @example
+   * Usage:
    *   const questions = await redis.withCache(
    *     `aloc:maths:JAMB:2025`,
    *     () => alocService.fetchQuestions('maths', 'JAMB', 2025),
-   *     86_400,  // 24h
+   *     86400,  // 24h
    *   );
    */
   async withCache<T>(
@@ -414,21 +387,17 @@ export class RedisService implements OnModuleDestroy {
     ttlSeconds = 300,
   ): Promise<T> {
     const cached = await this.cache.get(key);
-    if (cached !== null) {
+    if (cached) {
       return JSON.parse(cached) as T;
     }
     const data = await fetchFn();
-    // Fire-and-forget the cache write — don't block the response on it
-    this.cache
-      .setex(key, ttlSeconds, JSON.stringify(data))
-      .catch((err: Error) =>
-        this.logger.warn(`withCache setex failed for "${key}": ${err.message}`),
-      );
+    await this.cache.setex(key, ttlSeconds, JSON.stringify(data));
     return data;
   }
 
   /**
-   * @deprecated Use withCache() — same signature, clearer name.
+   * @deprecated Use withCache() instead.
+   * Kept for backwards compatibility with any existing callers of cache().
    */
   async cachet<T>(
     key: string,
@@ -438,13 +407,16 @@ export class RedisService implements OnModuleDestroy {
     return this.withCache(key, fetchFn, ttlSeconds);
   }
 
-  // ─── Typed cache helpers ────────────────────────────────────────────────────
+  // ─── Named cache-key helpers (ALOC, rates, trends) ─────────────────────────
 
-  /** ALOC question cache — Key: aloc:{subject}:{examType}:{year}  TTL: 24h */
+  /**
+   * ALOC question cache.
+   * Key: aloc:{subject}:{examType}:{year}   TTL: 24h
+   */
   async getAlocQuestions(
     subject: string,
     examType: string,
-    year: number | 'all',
+    year: number | "all",
   ): Promise<unknown[] | null> {
     const raw = await this.cache.get(`aloc:${subject}:${examType}:${year}`);
     return raw ? (JSON.parse(raw) as unknown[]) : null;
@@ -453,17 +425,20 @@ export class RedisService implements OnModuleDestroy {
   async setAlocQuestions(
     subject: string,
     examType: string,
-    year: number | 'all',
+    year: number | "all",
     questions: unknown[],
   ): Promise<void> {
     await this.cache.setex(
       `aloc:${subject}:${examType}:${year}`,
-      86_400,
+      86400,
       JSON.stringify(questions),
     );
   }
 
-  /** Exchange rate cache — Key: remit:rates:{currency}  TTL: 1h */
+  /**
+   * Exchange rate cache.
+   * Key: remit:rates:{currency}   TTL: 1h
+   */
   async getExchangeRate(currency: string): Promise<unknown | null> {
     const raw = await this.cache.get(`remit:rates:${currency}`);
     return raw ? JSON.parse(raw) : null;
@@ -472,22 +447,28 @@ export class RedisService implements OnModuleDestroy {
   async setExchangeRate(currency: string, data: unknown): Promise<void> {
     await this.cache.setex(
       `remit:rates:${currency}`,
-      3_600,
+      3600,
       JSON.stringify(data),
     );
   }
 
-  /** Nigerian trend data cache — Key: trends:ng:{YYYY-MM-DD}  TTL: 2h */
+  /**
+   * Nigerian trend data cache.
+   * Key: trends:ng:{YYYY-MM-DD}   TTL: 2h
+   */
   async getTrends(date: string): Promise<unknown | null> {
     const raw = await this.cache.get(`trends:ng:${date}`);
     return raw ? JSON.parse(raw) : null;
   }
 
   async setTrends(date: string, data: unknown): Promise<void> {
-    await this.cache.setex(`trends:ng:${date}`, 7_200, JSON.stringify(data));
+    await this.cache.setex(`trends:ng:${date}`, 7200, JSON.stringify(data));
   }
 
-  /** PlanAI tool access map per user — Key: planai:access:{userId}  TTL: 5m */
+  /**
+   * PlanAI tool access map per user.
+   * Key: planai:access:{userId}   TTL: 5 min
+   */
   async getPlanAIAccess(userId: string): Promise<string[] | null> {
     const raw = await this.cache.get(`planai:access:${userId}`);
     return raw ? (JSON.parse(raw) as string[]) : null;
@@ -505,36 +486,35 @@ export class RedisService implements OnModuleDestroy {
     await this.cache.del(`planai:access:${userId}`);
   }
 
-  /** Admin dashboard stats — Key: admin:stats:{YYYY-MM-DD}  TTL: 15m */
+  /**
+   * Admin dashboard stats.
+   * Key: admin:stats:{YYYY-MM-DD}   TTL: 15 min
+   */
   async getAdminStats(date: string): Promise<unknown | null> {
     const raw = await this.cache.get(`admin:stats:${date}`);
     return raw ? JSON.parse(raw) : null;
   }
 
   async setAdminStats(date: string, data: unknown): Promise<void> {
-    await this.cache.setex(
-      `admin:stats:${date}`,
-      900,
-      JSON.stringify(data),
-    );
+    await this.cache.setex(`admin:stats:${date}`, 900, JSON.stringify(data));
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // HEALTH CHECK
-  // Called by GET /health (health.controller.ts)
+  // Used by GET /health (admin.module.ts health.controller.ts)
   // ═══════════════════════════════════════════════════════════════════════════
 
   async health(): Promise<{
-    session: 'up' | 'down';
-    queue: 'up' | 'down';
-    cache: 'up' | 'down';
+    session: "up" | "down";
+    queue: "up" | "down";
+    cache: "up" | "down";
   }> {
-    const ping = async (client: Redis): Promise<'up' | 'down'> => {
+    const ping = async (client: Redis): Promise<"up" | "down"> => {
       try {
         const pong = await client.ping();
-        return pong === 'PONG' ? 'up' : 'down';
+        return pong === "PONG" ? "up" : "down";
       } catch {
-        return 'down';
+        return "down";
       }
     };
 

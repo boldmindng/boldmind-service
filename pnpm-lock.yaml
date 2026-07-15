@@ -27,8 +27,8 @@ importers:
         specifier: 1.1.0
         version: 1.1.0(react@19.2.0)
       '@boldmindng/email':
-        specifier: 6.1.0
-        version: 6.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+        specifier: 7.0.0
+        version: 7.0.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@boldmindng/sms':
         specifier: 1.1.0
         version: 1.1.0
@@ -442,14 +442,17 @@ packages:
     peerDependencies:
       '@boldmindng/utils': 10.1.0
       react: 19.2.0
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@boldmindng/deploy-config@1.1.0':
     resolution: {integrity: sha512-So4q6GHQPfAfEU7aVYRYxaMfU9Na+KJMVS6Fpm9qyYaCaHqvBEdlcDOFtsZtzQp22XWu8DksChNPQArFRrjbDQ==, tarball: https://npm.pkg.github.com/download/@boldmindng/deploy-config/1.1.0/594b1f28230c2e1a5ef2e5a3b6fb134e7c3ca2d0}
     engines: {node: '>=22.22.3'}
     hasBin: true
 
-  '@boldmindng/email@6.1.0':
-    resolution: {integrity: sha512-rsxsyAr0reisIUSxdVTDEtpequQlP935lvhltHtrpTYRLDZ96p6NCKChpnr1mB+lWD5hV4cxbbYxrUzP3GRFrQ==, tarball: https://npm.pkg.github.com/download/@boldmindng/email/6.1.0/66b39678a7dec0002a24c097c33d5594da1a9230}
+  '@boldmindng/email@7.0.0':
+    resolution: {integrity: sha512-RaVcAp4omm/D08XFHUwDSKPrmCEMci2CuBL3pNdBFwYlxXGSlGFrH7RDuigJcqCo4BNu3eRTirXOBslKegRgQw==, tarball: https://npm.pkg.github.com/download/@boldmindng/email/7.0.0/bdc3a949d39a0cc9c210a33e973c87bd7998c103}
     peerDependencies:
       react: 19.2.0
       react-dom: 19.2.0
@@ -463,6 +466,9 @@ packages:
     engines: {node: '>=22.22.3'}
     peerDependencies:
       react: 19.2.0
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@borewit/text-codec@0.2.2':
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
@@ -4444,6 +4450,7 @@ snapshots:
       '@boldmindng/utils': 10.1.0(react@19.2.0)
       mixpanel-browser: 2.80.0
       posthog-js: 1.391.2
+    optionalDependencies:
       react: 19.2.0
 
   '@boldmindng/deploy-config@1.1.0(react@19.2.0)':
@@ -4454,7 +4461,7 @@ snapshots:
     transitivePeerDependencies:
       - react
 
-  '@boldmindng/email@6.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+  '@boldmindng/email@7.0.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       '@react-email/render': 2.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       react: 19.2.0
@@ -4473,6 +4480,7 @@ snapshots:
       '@types/node': 22.20.0
       date-fns: 3.6.0
       date-fns-tz: 3.2.0(date-fns@3.6.0)
+    optionalDependencies:
       react: 19.2.0
 
   '@borewit/text-codec@0.2.2': {}

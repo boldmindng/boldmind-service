@@ -1,5 +1,6 @@
+# boldmind-service
 
-```
+```text
 boldmind-service
 ├─ .npmrc
 ├─ Dockerfile
@@ -52,7 +53,7 @@ boldmind-service
 │  │  ├─ queues
 │  │  │  └─ queues.module.ts
 │  │  └─ utils
-│  │     └─ slug.util.ts
+│     └─ slug.util.ts
 │  ├─ database
 │  │  ├─ database.module.ts
 │  │  ├─ prisma.service.ts

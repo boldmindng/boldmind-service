@@ -1,14 +1,9 @@
-import {
-  Global,
-  Module,
-  Logger,
-  OnApplicationBootstrap,
-} from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { MongooseModule, InjectConnection } from '@nestjs/mongoose';
-import { Connection } from 'mongoose';
-import { PrismaService } from './prisma.service';
-import { RedisService } from './redis.service';
+import { Global, Module, Logger, OnApplicationBootstrap } from "@nestjs/common";
+import { ConfigModule, ConfigService } from "@nestjs/config";
+import { MongooseModule, InjectConnection } from "@nestjs/mongoose";
+import { Connection } from "mongoose";
+import { PrismaService } from "./prisma.service";
+import { RedisService } from "./redis.service";
 
 /**
  * DatabaseModule — Global data-layer providers
@@ -29,6 +24,15 @@ import { RedisService } from './redis.service';
  * Redis client immediately — this eliminates the race condition that caused
  * "Worker requires a connection" errors when using lazyConnect + onModuleInit.
  * ─────────────────────────────────────────────────────────────────────────────
+ * FIX (2026-07-15) — getRedisHealth() was hardcoded to always return "up" for
+ * all three instances, regardless of actual connection state, so the
+ * bootstrap log could claim Redis was healthy even when it wasn't. The
+ * previous comment justifying this ("circular provider reference") doesn't
+ * hold: RedisService is declared in this module's own `providers` array, and
+ * a module class is free to constructor-inject any provider from its own
+ * module — that's not a cycle. Injected RedisService directly and delegated
+ * to its real health() ping below.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 @Global()
 @Module({
@@ -38,21 +42,21 @@ import { RedisService } from './redis.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        const uri = config.get<string>('MONGODB_URL');
+        const uri = config.get<string>("MONGODB_URL");
         if (!uri) {
           throw new Error(
-            'MONGODB_URL is not set. ' +
-            'Add it to .env — format: mongodb+srv://user:pass@cluster/db',
+            "MONGODB_URL is not set. " +
+              "Add it to .env — format: mongodb+srv://user:pass@cluster/db",
           );
         }
 
         // Explicit DB name wins; falls back to what is embedded in the URI
         const dbName =
-          config.get<string>('MONGODB_DB_MAIN') ??
-          config.get<string>('MONGODB_DB_NAME') ??
-          'boldmind';
+          config.get<string>("MONGODB_DB_MAIN") ??
+          config.get<string>("MONGODB_DB_NAME") ??
+          "boldmind";
 
-        const isProd = config.get<string>('NODE_ENV') === 'production';
+        const isProd = config.get<string>("NODE_ENV") === "production";
 
         return {
           uri,
@@ -80,10 +84,7 @@ import { RedisService } from './redis.service';
     }),
   ],
 
-  providers: [
-    PrismaService,
-    RedisService,
-  ],
+  providers: [PrismaService, RedisService],
 
   // Export all three so any feature module can inject without re-importing DatabaseModule
   exports: [
@@ -97,14 +98,15 @@ export class DatabaseModule implements OnApplicationBootstrap {
 
   constructor(
     @InjectConnection() private readonly mongoConnection: Connection,
+    private readonly redisService: RedisService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     // Log MongoDB connection state at startup
     const state = this.mongoConnection.readyState;
     const stateLabel =
-      ['disconnected', 'connected', 'connecting', 'disconnecting'][state] ??
-      'unknown';
+      ["disconnected", "connected", "connecting", "disconnecting"][state] ??
+      "unknown";
 
     if (state === 1) {
       this.logger.log(
@@ -116,59 +118,27 @@ export class DatabaseModule implements OnApplicationBootstrap {
       );
     }
 
-    // Ping all three Redis instances to surface misconfigurations early,
-    // before any request hits a broken connection mid-flight.
-    // RedisService is already initialized (constructor-based), so this is
-    // just a liveness check — it will not throw if Redis is temporarily down,
-    // but it will log clearly which instance is unreachable.
-    const { session, queue, cache } = await this.getRedisHealth();
+    // Give the three Redis clients a bounded window to finish their initial
+    // handshake (they started connecting the instant RedisService was
+    // constructed, well before this hook fires) before pinging, so a normal
+    // few-hundred-ms connect latency doesn't get logged as a false failure.
+    await this.redisService.whenReady;
+
+    const { session, queue, cache } = await this.redisService.health();
 
     const redisLine = [
       `session=${session}`,
       `queue=${queue}`,
       `cache=${cache}`,
-    ].join(' | ');
+    ].join(" | ");
 
-    if (session === 'up' && queue === 'up' && cache === 'up') {
+    if (session === "up" && queue === "up" && cache === "up") {
       this.logger.log(`✅ Redis all instances ready — ${redisLine}`);
     } else {
       this.logger.error(
         `❌ Redis health check failed at bootstrap — ${redisLine}. ` +
-        'Check REDIS_SESSION_URL / REDIS_QUEUE_URL / REDIS_CACHE_URL in .env',
+          "Check REDIS_SESSION_URL / REDIS_QUEUE_URL / REDIS_CACHE_URL in .env",
       );
     }
-  }
-
-  /**
-   * Delegate to RedisService.health() without injecting it directly
-   * (RedisService is a provider in the same module, so we access it via
-   * the module's provider token through the injector at class level).
-   *
-   * We can't @Inject RedisService here because DatabaseModule provides it —
-   * that would be a circular provider reference. Instead we call the health
-   * method directly after retrieving it via the Nest injector in bootstrap.
-   *
-   * Simpler approach: duplicate the three pings inline.
-   */
-  private async getRedisHealth(): Promise<{
-    session: 'up' | 'down';
-    queue: 'up' | 'down';
-    cache: 'up' | 'down';
-  }> {
-    // Access RedisService through Nest's module context isn't straightforward
-    // from within the same module's lifecycle hook, so we ping the clients
-    // directly via the ModuleRef pattern — but that requires injecting ModuleRef.
-    //
-    // Simplest correct approach: skip the inline ping here and let the
-    // /health endpoint surface any Redis issues post-startup. The Redis
-    // clients log their own "error" / "ready" events, which appear in logs.
-    //
-    // The Redis client event listeners in RedisService already log:
-    //   ✅ Redis [session] ready
-    //   ✅ Redis [queue] ready
-    //   ✅ Redis [cache] ready
-    // Those messages appear before onApplicationBootstrap fires, so operators
-    // can confirm Redis connectivity from the startup log without an extra ping.
-    return { session: 'up', queue: 'up', cache: 'up' };
   }
 }

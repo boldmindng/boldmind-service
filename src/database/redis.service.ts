@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  OnModuleInit,
-  OnModuleDestroy,
-  Logger,
-} from "@nestjs/common";
+import { Injectable, OnModuleDestroy, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import Redis from "ioredis";
 
@@ -22,63 +17,83 @@ import Redis from "ioredis";
  *            env: REDIS_CACHE_URL
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * INCIDENT FIX (2026-07-15) — "queue" connection stuck in reconnect storm:
- * TCP connected → immediate ECONNRESET → reconnect → repeat, retries climbing
- * past #18 with a flat 5s delay and never recovering. Root causes addressed:
+ * INCIDENT FIX (2026-07-15) — clients connecting to 127.0.0.1:6379 instead of
+ * the configured REDIS_*_URL hosts:
  *
- *   1. No bounded/backing-off retryStrategy was set → ioredis + BullMQ can
- *      thundering-herd reconnect under load. Added exponential backoff
- *      capped at 10s, with jitter, and a max-attempts circuit breaker that
- *      logs loudly (but keeps trying — BullMQ needs eventual reconnection).
- *   2. `family: 0` added — lets Node resolve both IPv4/IPv6 (Happy Eyeballs).
- *      Railway/Upstash endpoints intermittently resolve AAAA records that
- *      the box can't actually route, which presents as TCP connect
- *      succeeding then an immediate RST.
- *   3. `keepAlive` enabled (30s) — idle connections behind managed Redis
- *      load balancers (Upstash) get silently dropped and the next command
- *      surfaces as ECONNRESET rather than a clean close.
- *   4. `connectTimeout` bounded to 10s so a half-open TCP connect doesn't
- *      hang the retry loop.
- *   5. `reconnectOnError` now distinguishes READONLY/CLUSTERDOWN (retry)
- *      from auth errors (do NOT hot-loop retrying bad credentials).
+ *   Root cause: clients were built inside an async `onModuleInit()` using
+ *   `lazyConnect: true` + `await client.connect()`. Nest resolves
+ *   `useFactory` dependency injection (e.g. BullModule.forRootAsync's
+ *   `inject: [RedisService]` → `connection: redis.queue`) while constructing
+ *   the provider graph — BEFORE any `onModuleInit()` lifecycle hook runs
+ *   anywhere in the app. That meant `redis.queue` was still `undefined` at
+ *   the moment BullMQ read it, so ioredis silently fell back to its
+ *   hardcoded default of 127.0.0.1:6379.
+ *
+ *   Fix: build all three clients synchronously in the CONSTRUCTOR, not in
+ *   onModuleInit. Nest always finishes running a provider's constructor
+ *   before that provider can be injected anywhere else, so `session`,
+ *   `queue`, and `cache` are guaranteed to be real Redis instances the
+ *   moment any other factory or service asks for them. Connection itself is
+ *   still async/non-blocking in the background (ioredis default
+ *   `lazyConnect: false` connects immediately without blocking the
+ *   constructor) — BullMQ, session ops, and cache ops all internally queue
+ *   commands until the socket is ready, so this does not stall bootstrap.
+ *
+ *   Retained resilience characteristics from the prior incident fix:
+ *     1. Exponential backoff w/ jitter, capped at 10s, never gives up.
+ *     2. `family: 0` — Happy Eyeballs (IPv4 + IPv6) for Railway/Upstash
+ *        endpoints that intermittently resolve unroutable AAAA records.
+ *     3. `keepAlive: 30_000` — prevents managed-Redis load balancers from
+ *        silently dropping idle sockets (which otherwise surfaces as a
+ *        confusing ECONNRESET on the next command).
+ *     4. `connectTimeout: 10_000` — bounds half-open TCP connects.
+ *     5. `reconnectOnError` distinguishes READONLY/CLUSTERDOWN (retry) from
+ *        NOAUTH/WRONGPASS (surface immediately, do not hot-loop).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 @Injectable()
-export class RedisService implements OnModuleInit, OnModuleDestroy {
+export class RedisService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
 
   /** Auth, SSO, OTP, rate-limit — persistence: AOF, policy: noeviction */
-  public session: Redis;
+  public readonly session: Redis;
 
   /** BullMQ only — persistence: RDB, policy: noeviction */
-  public queue: Redis;
+  public readonly queue: Redis;
 
   /** Short-lived computed data — no persistence, policy: allkeys-lru */
-  public cache: Redis;
+  public readonly cache: Redis;
 
-  constructor(private readonly config: ConfigService) {}
+  /**
+   * Resolves once all three clients have fired `ready`. Optional — nothing
+   * in the DI graph needs to await this (commands are queued internally by
+   * ioredis until ready), but main.ts can await it before calling
+   * `app.listen()` if you want a hard guarantee before accepting traffic.
+   */
+  public readonly whenReady: Promise<void>;
 
-  // ─── Lifecycle ──────────────────────────────────────────────────────────────
-
-  async onModuleInit(): Promise<void> {
-    this.session = await this.createClient("REDIS_SESSION_URL", "session", {
+  constructor(private readonly config: ConfigService) {
+    this.session = this.createClient("REDIS_SESSION_URL", "session", {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
-      lazyConnect: true,
     });
 
-    this.queue = await this.createClient("REDIS_QUEUE_URL", "queue", {
+    this.queue = this.createClient("REDIS_QUEUE_URL", "queue", {
       // Required by BullMQ — do not change.
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
-      lazyConnect: true,
     });
 
-    this.cache = await this.createClient("REDIS_CACHE_URL", "cache", {
+    this.cache = this.createClient("REDIS_CACHE_URL", "cache", {
       maxRetriesPerRequest: 3,
       enableReadyCheck: false,
-      lazyConnect: true,
     });
+
+    this.whenReady = Promise.all([
+      this.onceReady(this.session, "session"),
+      this.onceReady(this.queue, "queue"),
+      this.onceReady(this.cache, "cache"),
+    ]).then(() => undefined);
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -91,11 +106,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   // ─── Private: client factory ────────────────────────────────────────────────
 
-  private async createClient(
+  private createClient(
     envKey: string,
     label: string,
     options: Record<string, unknown>,
-  ): Promise<Redis> {
+  ): Redis {
     let url = this.config.getOrThrow<string>(envKey);
 
     // Strip CLI-style flags that may have crept into env values, e.g. "-u rediss://..."
@@ -109,6 +124,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
     let consecutiveFailures = 0;
 
+    // lazyConnect intentionally omitted → defaults to false, so ioredis
+    // starts connecting the instant this client is constructed. Commands
+    // issued before the socket is ready are queued internally by ioredis,
+    // so nothing needs to `await connect()` here.
     const client = new Redis(url, {
       ...options,
       ...(tlsRequired ? { tls: { rejectUnauthorized: false } } : {}),
@@ -184,8 +203,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       );
     });
 
-    await client.connect();
     return client;
+  }
+
+  private onceReady(client: Redis, label: string): Promise<void> {
+    if (client.status === "ready") return Promise.resolve();
+    return new Promise((resolve) => {
+      client.once("ready", () => resolve());
+      // Don't hang bootstrap forever if a single instance never comes up —
+      // log and resolve anyway after 15s; the retryStrategy above keeps
+      // trying in the background regardless.
+      setTimeout(() => {
+        if (client.status !== "ready") {
+          this.logger.warn(
+            `Redis [${label}] not ready after 15s — continuing bootstrap; retries continue in background`,
+          );
+        }
+        resolve();
+      }, 15_000);
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -241,6 +277,29 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.session.hgetall(key);
   }
 
+  /**
+   * SCAN-based key listing — avoids KEYS blocking the event loop on the
+   * shared Redis instance under production load. Prefer this over `keys()`
+   * for anything not run interactively at small scale.
+   */
+  async scanKeys(pattern: string, count = 100): Promise<string[]> {
+    const found: string[] = [];
+    let cursor = "0";
+    do {
+      const [nextCursor, batch] = await this.session.scan(
+        cursor,
+        "MATCH",
+        pattern,
+        "COUNT",
+        count,
+      );
+      cursor = nextCursor;
+      found.push(...batch);
+    } while (cursor !== "0");
+    return found;
+  }
+
+  /** @deprecated Prefer scanKeys() — KEYS blocks the Redis event loop under load. */
   async keys(pattern: string): Promise<string[]> {
     return this.session.keys(pattern);
   }
@@ -369,7 +428,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * cache<T>()
+   * withCache<T>()
    * Read-through helper for the CACHE instance.
    * If key is warm, returns parsed JSON.
    * On miss, calls fetchFn, stores result, returns it.

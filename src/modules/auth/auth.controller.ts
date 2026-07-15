@@ -237,6 +237,8 @@ export class AuthController {
   }
 
   // ── OAuth — Google ──────────────────────────────────────────────────────────
+  // ── OAuth — Google ──────────────────────────────────────────────────────────
+  // Patch for src/modules/auth/auth.controller.ts
 
   @Get("google")
   @UseGuards(GoogleAuthGuard)
@@ -245,15 +247,45 @@ export class AuthController {
   @Get("google/callback")
   @UseGuards(GoogleAuthGuard)
   async googleCallback(@Req() req: Request, @Res() res: Response) {
-    const { accessToken, redirectUrl, userId } = req.user as {
+    const oauthResult = req.user as {
       accessToken: string;
       refreshToken: string;
       expiresIn: number;
       redirectUrl?: string;
-      userId: string;
+      userId?: string;
+      user?: { id: string; [key: string]: unknown };
     };
 
+    const { accessToken, refreshToken, redirectUrl } = oauthResult;
+
+    // BUG FIX: previous version destructured `userId` directly, but
+    // AuthService.handleOAuthLogin() (like login()/register()) returns the
+    // user nested as `{ user: { id, ... } }`, not a top-level `userId`. That
+    // made every cross-domain (external pillar) Google sign-in silently store
+    // a relay token with userId=undefined (JSON.stringify drops undefined
+    // keys), breaking the downstream exchange for amebogist.ng /
+    // educenter.com.ng / villagecircle.ng. Resolve defensively so this works
+    // regardless of which shape handleOAuthLogin ends up returning.
+    const userId = oauthResult.userId ?? oauthResult.user?.id;
+
+    if (!accessToken || !refreshToken || !userId) {
+      // this.logger.error(
+      //   `Google OAuth callback missing required fields — accessToken=${!!accessToken} refreshToken=${!!refreshToken} userId=${!!userId}. ` +
+      //     "Check AuthService.handleOAuthLogin() return shape matches what GoogleStrategy/AuthController expect.",
+      // );
+      return res.redirect(`${this.hubUrl}/login?error=oauth_failed`);
+    }
+
     this.ssoService.setSsoCookie(res, accessToken);
+
+    // BUG FIX: this was never called on the Google OAuth path, unlike every
+    // other auth flow (register/login/login-verify-2fa/refresh all set both
+    // cookies). Without it, Google sign-ins had no refresh token anywhere —
+    // the access token cookie (15 min TTL) would expire with no way to
+    // silently refresh, logging the user out shortly after landing on the
+    // dashboard.
+    this.ssoService.setRefreshCookie(res, refreshToken);
+
     res.clearCookie("oauth_redirect", { path: "/" });
 
     const returnUrl = redirectUrl || `${this.hubUrl}/dashboard`;

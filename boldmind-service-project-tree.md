@@ -25,6 +25,8 @@ boldmind-service
 │  │  │  └─ migration.sql
 │  │  ├─ 20260622220602_add_hr_enum
 │  │  │  └─ migration.sql
+│  │  ├─ 20260711235234_user_update
+│  │  │  └─ migration.sql
 │  │  └─ migration_lock.toml
 │  ├─ schema.prisma
 │  └─ seed.ts
@@ -141,9 +143,10 @@ boldmind-service
 │  │  │  ├─ sso
 │  │  │  │  ├─ sso.controller.ts
 │  │  │  │  └─ sso.service.ts
-│  │  │  └─ strategies
-│  │  │     ├─ google.strategy.ts
-│  │  │     └─ jwt.strategy.ts
+│  │  │  ├─ strategies
+│  │  │  │  ├─ google.strategy.ts
+│  │  │  │  └─ jwt.strategy.ts
+│  │  │  └─ totp.util.ts
 │  │  ├─ automation
 │  │  │  ├─ automation.controller.ts
 │  │  │  ├─ automation.module.ts
@@ -174,10 +177,19 @@ boldmind-service
 │  │  ├─ notification
 │  │  │  ├─ dto
 │  │  │  │  ├─ send-email.dto.ts
-│  │  │  │  └─ send-push.dto.ts
+│  │  │  │  ├─ send-otp.dto.ts
+│  │  │  │  ├─ send-push.dto.ts
+│  │  │  │  ├─ send-user-push.dto.ts
+│  │  │  │  └─ send-whatsapp.dto.ts
 │  │  │  ├─ notification.controller.ts
 │  │  │  ├─ notification.module.ts
-│  │  │  └─ notification.service.ts
+│  │  │  ├─ notification.service.ts
+│  │  │  ├─ notification.tokens.ts
+│  │  │  ├─ processors
+│  │  │  │  ├─ email-broadcast.processor.ts
+│  │  │  │  └─ push-broadcast.processor.ts
+│  │  │  └─ providers
+│  │  │     └─ resend-otp-email.provider.ts
 │  │  ├─ payment
 │  │  │  ├─ payment.controller.ts
 │  │  │  ├─ payment.dto.ts

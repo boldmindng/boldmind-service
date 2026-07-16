@@ -1,6 +1,64 @@
-# boldmind-service
+# The Upstash error makes sense once you look at how BullMQ actually talks to Redis
 
-```text
+The Upstash error makes sense once you look at how BullMQ actually talks to Redis — this is a very common trap, not something wrong with your code per se.
+
+## Why you're blowing through 500k requests
+
+Upstash bills **per command**, and BullMQ workers use blocking-poll patterns (`BZPOPMIN`/stream reads for delayed jobs, stalled-job checks, rate-limiter checks) that fire continuously — even when the queue is empty. With 15+ queues registered in `QueuesModule` and however many actually have active `@Processor` workers attached, you can burn through hundreds of thousands of commands per day just from idle polling. This is a known mismatch: **Upstash's serverless/pay-per-request model is a bad fit for BullMQ**, which was designed for a persistent, "free to poll" Redis connection. Lots of people hit exactly this wall.
+
+Two things compound it in your setup specifically:
+
+1. Every queue in `queues.ts` gets registered via `QueuesModule` (producer side), but I can't tell from what I have which ones also have a `@Processor` consumer actually running (your own comments flag `NOTIFICATIONS_DISPATCH` and `CONTENT_PROCESSING` as "VERIFY — no processor class currently visible"). Registered-but-unconsumed queues are cheap; queues with an active `Worker` polling are the expensive ones.
+2. If anything creates a `QueueEvents` instance (event listening across processes), that uses Redis Streams with a long-polling `XREAD` — this is the single most request-hungry pattern in BullMQ. Worth checking if any admin/dashboard tooling (Bull Board, etc.) is wired in anywhere.
+
+## Recommendation: move `REDIS_QUEUE_URL` off Upstash to Railway Redis
+
+Since you're already on Railway for the service itself, Railway's Redis plugin is the right fix specifically for the **queue** instance — it's billed on memory/compute, not per-command, so BullMQ's chatty polling costs you nothing extra. Your `RedisService` architecture (three separate URLs) already supports this with zero code changes — you'd only touch env vars:
+
+```env
+# Move only the queue instance:
+REDIS_QUEUE_URL=redis://default:<password>@<railway-redis-host>:6379
+
+# SESSION and CACHE can stay on Upstash — they're low-volume,
+# request-light (SSO tokens, OTP, rate limits, ALOC cache) and
+# actually benefit from Upstash's serverless scale-to-zero pricing.
+```
+
+This matches your existing "three-split" design intent — nothing architectural changes, just which provider backs which instance. Your `redis.service.ts` already handles TLS detection (`rediss://` or `.upstash.io`) automatically, so a plain Railway `redis://` URL will just skip TLS and work as-is.
+
+**Before you migrate**, I'd like to see the processor files to rule out a `QueueEvents` leak (which would blow through Railway's limits too eventually, just less immediately fatal):
+
+- `src/modules/automation/queue/*.processor.ts` (ai-jobs, email-campaign, social-post)
+- `src/modules/wallet/queue/wallet-credit.processor.ts`
+- `src/modules/planai/processors/planai.processor.ts`
+- `src/modules/notification/processors/*.processor.ts`
+- `src/modules/ai/processors/social-factory.processor.ts`
+
+Can you paste those (or run `grep -rn "QueueEvents\|new Queue(" src/` and share the output)? That'll tell us if there's a genuine bug versus just "BullMQ + Upstash was always going to hit this ceiling eventually."
+
+---
+
+## The v2 "real update" wave plan
+
+Agreed — moving from patches to a proper pass. Here's the flow, sequenced so nothing downstream breaks while upstream is mid-change:
+
+**Wave A — Inventory (no code changes)**
+
+1. Enumerate every endpoint actually implemented in `boldmind-service` right now (controller-by-controller, not the canonical doc's aspirational list) — I'll need the actual controller files, not just the tree.
+2. Cross-reference against `boldmind-service-canonical.md` §2 to flag: endpoints that exist but aren't documented, and documented endpoints that don't exist yet.
+3. Produce one source-of-truth endpoint list (method, path, auth, request/response shape) pulled from real DTOs/decorators, not prose.
+
+**Wave B — `api-client` package (real update, not addendum)** 4. Rewrite `client.ts` for dual-auth (`jwt` | `apikey`) per the spec already drafted in `boldmind-shared-monorepo.md` §5.1. 5. Regenerate every `*.api.ts` file against the Wave A endpoint list — including the 5 missing ones (`wallet.api.ts`, `developer.api.ts`, `polymind.api.ts`, `educenter-lms.api.ts`, `educenter-school.api.ts`). 6. Fix `os.api.ts`/`fitness.api.ts` legacy aliases to just re-export cleanly.
+
+**Wave C — `auth` package** 7. Verify `createAuthMiddleware` protected-path lists per app match reality. 8. Confirm `buildSsoRelayUrl` is used everywhere (ties into the still-open Google OAuth double-call bug in `auth.controller.ts` — worth fixing in this same pass since `auth` package consumes it).
+
+**Wave D — other shared packages touched by the endpoint changes** 9. `email`, `sms`, `wallet` packages — sync types/exports to match whatever Wave A found.
+
+**Wave E — web apps** 10. Bump `@boldmindng/api-client` + `@boldmindng/auth` in each of the 5 Next.js apps one at a time (boldmind-web → planai-suite → amebogist-web → educenter-web → villagecircle-web), fixing call-site breaks as they surface from the real API shapes.
+
+For Wave A to start, I need the actual controller files (not the tree/doc) — `notification.controller.ts` is a good first one since we were mid-work on it. Want to start there once Redis is settled, or tackle both in parallel?
+
+```
 boldmind-service
 ├─ .npmrc
 ├─ Dockerfile
@@ -26,6 +84,8 @@ boldmind-service
 │  │  ├─ 20260621035316_wallet
 │  │  │  └─ migration.sql
 │  │  ├─ 20260622220602_add_hr_enum
+│  │  │  └─ migration.sql
+│  │  ├─ 20260711235234_user_update
 │  │  │  └─ migration.sql
 │  │  └─ migration_lock.toml
 │  ├─ schema.prisma
@@ -53,7 +113,7 @@ boldmind-service
 │  │  ├─ queues
 │  │  │  └─ queues.module.ts
 │  │  └─ utils
-│     └─ slug.util.ts
+│  │     └─ slug.util.ts
 │  ├─ database
 │  │  ├─ database.module.ts
 │  │  ├─ prisma.service.ts
@@ -143,9 +203,10 @@ boldmind-service
 │  │  │  ├─ sso
 │  │  │  │  ├─ sso.controller.ts
 │  │  │  │  └─ sso.service.ts
-│  │  │  └─ strategies
-│  │  │     ├─ google.strategy.ts
-│  │  │     └─ jwt.strategy.ts
+│  │  │  ├─ strategies
+│  │  │  │  ├─ google.strategy.ts
+│  │  │  │  └─ jwt.strategy.ts
+│  │  │  └─ totp.util.ts
 │  │  ├─ automation
 │  │  │  ├─ automation.controller.ts
 │  │  │  ├─ automation.module.ts
@@ -176,10 +237,19 @@ boldmind-service
 │  │  ├─ notification
 │  │  │  ├─ dto
 │  │  │  │  ├─ send-email.dto.ts
-│  │  │  │  └─ send-push.dto.ts
+│  │  │  │  ├─ send-otp.dto.ts
+│  │  │  │  ├─ send-push.dto.ts
+│  │  │  │  ├─ send-user-push.dto.ts
+│  │  │  │  └─ send-whatsapp.dto.ts
 │  │  │  ├─ notification.controller.ts
 │  │  │  ├─ notification.module.ts
-│  │  │  └─ notification.service.ts
+│  │  │  ├─ notification.service.ts
+│  │  │  ├─ notification.tokens.ts
+│  │  │  ├─ processors
+│  │  │  │  ├─ email-broadcast.processor.ts
+│  │  │  │  └─ push-broadcast.processor.ts
+│  │  │  └─ providers
+│  │  │     └─ resend-otp-email.provider.ts
 │  │  ├─ payment
 │  │  │  ├─ payment.controller.ts
 │  │  │  ├─ payment.dto.ts

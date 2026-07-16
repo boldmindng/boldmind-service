@@ -90,3 +90,5 @@ uploads/
 # Custom
 *-debug.log
 *-error.log
+
+.git

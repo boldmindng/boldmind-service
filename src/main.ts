@@ -64,12 +64,22 @@ async function bootstrap() {
     // 'X-App-ID' is not the same header as 'x-app-domain'. Any custom
     // header sent by any frontend must be explicitly listed here or the
     // preflight fails before the real request is ever sent.
+    //
+    // FIX (2026-07-17): @boldmindng/api-client's apiFetch()/createClient()
+    // stamp every outgoing request with 'x-correlation-id' (see client.ts
+    // generateCorrelationId()) for distributed tracing. That header was
+    // never added here, so every preflight — including the one in front of
+    // POST /auth/refresh — failed with:
+    //   "Request header field x-correlation-id is not allowed by
+    //    Access-Control-Allow-Headers in preflight response."
+    // Any header client.ts sets must be mirrored in this list.
     allowedHeaders: [
       "Content-Type",
       "Authorization",
       "X-App-ID",
       "X-Request-ID",
       "x-app-domain",
+      "x-correlation-id",
     ],
     // Preflight responses are cached by the browser for this many seconds —
     // reduces repeated OPTIONS round-trips for the same origin/header combo.

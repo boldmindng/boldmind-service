@@ -802,6 +802,19 @@ model UserProfile {
   referralCode   String   @unique @default(cuid())
   referredBy     String?
 
+  // Business profile (used by UpdateProfileDto)
+  businessName  String?
+  businessType  String?
+  industry      String?
+  city          String?
+  linkedin      String?
+  twitter       String?
+  instagram     String?
+  tiktok        String?
+  yearFounded   Int?
+  teamSize      Int?
+  annualRevenue String?
+
   // EduCenter specific
   examTarget  ExamType? // What exam the student is preparing for
   targetYear  Int? // Year of exam (e.g., 2026)

@@ -141,4 +141,15 @@ export class HubController {
   ) {
     return this.hubService.removeTeamMember(userId, actor.sub);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth("access-token")
+  @Get("stats")
+  @ApiOperation({
+    summary:
+      "Role-aware stats — personal stats (spend, products, wallet, referrals) for regular users; full ecosystem stats for admin/super_admin",
+  })
+  getStats(@CurrentUser() user: JwtPayload) {
+    return this.hubService.getStats(user.sub);
+  }
 }

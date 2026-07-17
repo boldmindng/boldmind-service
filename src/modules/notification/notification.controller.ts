@@ -98,7 +98,7 @@ export class NotificationController {
 
   @Post("email")
   @UseGuards(RolesGuard)
-  @Roles("ADMIN", "SUPER_ADMIN")
+  @Roles("admin", "super_admin")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Send a single transactional email (admin/internal)",
@@ -109,7 +109,7 @@ export class NotificationController {
 
   @Post("whatsapp")
   @UseGuards(RolesGuard)
-  @Roles("ADMIN", "SUPER_ADMIN")
+  @Roles("admin", "super_admin")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -126,7 +126,7 @@ export class NotificationController {
 
   @Post("push/user")
   @UseGuards(RolesGuard)
-  @Roles("ADMIN", "SUPER_ADMIN")
+  @Roles("admin", "super_admin") // was:  @Roles("ADMIN", "SUPER_ADMIN")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Send a push notification to one specific user (admin/internal)",
@@ -138,7 +138,7 @@ export class NotificationController {
 
   @Post("otp")
   @UseGuards(RolesGuard)
-  @Roles("ADMIN", "SUPER_ADMIN")
+  @Roles("admin", "super_admin")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -152,7 +152,7 @@ export class NotificationController {
 
   @Post("broadcast/push")
   @UseGuards(RolesGuard)
-  @Roles("ADMIN", "SUPER_ADMIN")
+  @Roles("admin", "super_admin")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Broadcast push notification to all users (admin)" })
   broadcastPush(@Body() dto: SendPushDto) {
@@ -161,7 +161,7 @@ export class NotificationController {
 
   @Post("broadcast/email")
   @UseGuards(RolesGuard)
-  @Roles("ADMIN", "SUPER_ADMIN")
+  @Roles("admin", "super_admin")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Broadcast email to all or a segment (admin)" })
   broadcastEmail(

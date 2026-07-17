@@ -209,6 +209,117 @@ export class HubService {
     );
   }
 
+  // ── Stats (role-aware) ──────────────────────────────────────
+
+  /**
+   * Single entry point for GET /hub/stats. Branches by the caller's DB role
+   * (not the JWT payload, since we don't have confirmed visibility into
+   * whether the token carries role) rather than requiring two separate
+   * routes: admins get the ecosystem-wide numbers, everyone else gets their
+   * own personal stats.
+   */
+  async getStats(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+
+    const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+    return isAdmin ? this.getEcosystemStats() : this.getMyStats(userId);
+  }
+
+  /**
+   * Personal stats for a regular user — distinct from getDashboardStats()
+   * above (which is product-access + activity + wallet oriented). This is
+   * the numbers-card view: spend, active products, wallet, referrals.
+   */
+  async getMyStats(userId: string) {
+    return this.redis.withCache(
+      `hub:stats:user:${userId}`,
+      async () => {
+        const [
+          user,
+          subscriptions,
+          spend,
+          wallet,
+          referralStats,
+          activityCount,
+          recentLedger,
+        ] = await Promise.all([
+          this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { name: true, email: true, createdAt: true },
+          }),
+          this.prisma.subscription.findMany({
+            where: { userId, status: { in: ["ACTIVE", "TRIAL"] } },
+            select: {
+              productSlug: true,
+              tier: true,
+              status: true,
+              currentPeriodEnd: true,
+            },
+          }),
+          this.prisma.payment.aggregate({
+            where: { userId, status: "SUCCESS" },
+            _sum: { amountNGN: true },
+            _count: true,
+          }),
+          this.prisma.wallet.findUnique({
+            where: { userId },
+            select: { balanceKobo: true, tier: true, isLocked: true },
+          }),
+          this.referralService.getStats(userId),
+          this.prisma.activityLog.count({ where: { userId } }),
+          this.prisma.walletLedger.findMany({
+            where: { wallet: { userId } },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+            select: {
+              type: true,
+              amountKobo: true,
+              description: true,
+              source: true,
+              createdAt: true,
+            },
+          }),
+        ]);
+
+        return {
+          member: {
+            name: user?.name ?? null,
+            email: user?.email ?? null,
+            memberSince: user?.createdAt?.toISOString() ?? null,
+          },
+          products: {
+            activeCount: subscriptions.length,
+            active: subscriptions.map((s) => ({
+              productSlug: s.productSlug,
+              productName:
+                BOLDMIND_PRODUCTS.find((p) => p.slug === s.productSlug)?.name ??
+                s.productSlug,
+              tier: s.tier,
+              status: s.status,
+              currentPeriodEnd: s.currentPeriodEnd,
+            })),
+          },
+          spend: {
+            totalPaidNGN: spend._sum.amountNGN ?? 0,
+            totalTransactions: spend._count,
+          },
+          wallet: {
+            balanceKobo: wallet?.balanceKobo ?? 0,
+            tier: wallet?.tier ?? null,
+            isLocked: wallet?.isLocked ?? false,
+            recentLedger,
+          },
+          referrals: referralStats,
+          activityCount,
+        };
+      },
+      60, // 1 min cache — same TTL as getDashboardStats
+    );
+  }
+
   /**
    * The previous getDashboardStats() body — global ecosystem stats
    * (admin counts, MRR, top products, system health). Nothing in

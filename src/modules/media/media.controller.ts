@@ -111,7 +111,7 @@ export class MediaController {
 
   @Get("admin/all")
   @UseGuards(RolesGuard)
-  @Roles("ADMIN", "SUPER_ADMIN")
+  @Roles("admin", "super_admin") // was: @Roles("ADMIN", "SUPER_ADMIN")
   @ApiOperation({ summary: "List all media files (admin)" })
   adminListAll(@Query("page") page = 1, @Query("limit") limit = 50) {
     return this.mediaService.adminListAll(+page, +limit);

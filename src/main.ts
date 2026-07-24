@@ -1,4 +1,5 @@
 import { NestFactory } from "@nestjs/core";
+import { NestExpressApplication } from "@nestjs/platform-express";
 import { ValidationPipe, Logger } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import { ConfigService } from "@nestjs/config";
@@ -21,9 +22,17 @@ async function bootstrap() {
     process.exit(1);
   }
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ["error", "warn", "log", "debug"],
   });
+
+  // FIX: Railway (and any reverse proxy) sits in front of this process.
+  // Without this, Express reports the proxy's internal address as the
+  // request IP/protocol — that's exactly the 100.64.0.10 seen in prod logs —
+  // and any downstream logic reading req.ip / req.secure / X-Forwarded-*
+  // (including cookie `secure` decisions made indirectly via NODE_ENV, and
+  // any future rate-limiting keyed on IP) is working off the wrong data.
+  app.set("trust proxy", 1);
 
   const configService = app.get(ConfigService);
   const PORT = configService.get<number>("PORT", 4001);
@@ -57,22 +66,8 @@ async function bootstrap() {
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    // FIX (2026-07-15): frontend sends 'x-app-domain' on cross-domain calls
-    // (e.g. /auth/refresh from boldmind.ng) but it was missing from this
-    // list entirely — the browser's preflight OPTIONS check compares the
-    // literal header names the client asks for against this list, and
-    // 'X-App-ID' is not the same header as 'x-app-domain'. Any custom
-    // header sent by any frontend must be explicitly listed here or the
-    // preflight fails before the real request is ever sent.
-    //
-    // FIX (2026-07-17): @boldmindng/api-client's apiFetch()/createClient()
-    // stamp every outgoing request with 'x-correlation-id' (see client.ts
-    // generateCorrelationId()) for distributed tracing. That header was
-    // never added here, so every preflight — including the one in front of
-    // POST /auth/refresh — failed with:
-    //   "Request header field x-correlation-id is not allowed by
-    //    Access-Control-Allow-Headers in preflight response."
-    // Any header client.ts sets must be mirrored in this list.
+    // Any custom header any frontend sends must be explicitly listed here
+    // or the preflight fails before the real request is ever sent.
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -81,8 +76,6 @@ async function bootstrap() {
       "x-app-domain",
       "x-correlation-id",
     ],
-    // Preflight responses are cached by the browser for this many seconds —
-    // reduces repeated OPTIONS round-trips for the same origin/header combo.
     maxAge: 86400,
   });
 
@@ -140,8 +133,6 @@ async function bootstrap() {
         },
         "access-token",
       )
-
-      // ── Infrastructure ────────────────────────────────────────
       .addTag("Health", "Railway health check — GET /health")
       .addTag(
         "Auth",
@@ -172,8 +163,6 @@ async function bootstrap() {
         "Hub",
         "BoldmindNG Hub — ecosystem gateway, community feed, builder dashboard",
       )
-
-      // ── Enablement pillar: PlanAI Suite (boldmind.ng) ─────────
       .addTag(
         "PlanAI / Suite",
         "PlanAI access tiers, tool enablement, suite dashboard — boldmind.ng",
@@ -230,8 +219,6 @@ async function bootstrap() {
         "PlanAI / Marketplace",
         "Services + digital products two-sided marketplace, Paystack escrow — marketplace.boldmind.ng",
       )
-
-      // ── Awareness pillar: AmeboGist (amebogist.ng) ─────────────
       .addTag(
         "AmeboGist / Posts",
         "Pidgin English articles — CRUD, reactions, comments, trending — amebogist.ng",
@@ -242,8 +229,6 @@ async function bootstrap() {
         "RSS feed for content syndication — amebogist.ng/rss",
       )
       .addTag("AmeboGist / Creator", "Creator dashboard, stats, earnings")
-
-      // ── Education pillar: EduCenter (educenter.com.ng) ─────────
       .addTag(
         "EduCenter / Exam Prep",
         "JAMB, WAEC, NECO, GCE, Post-UTME questions via ALOC API — educenter.com.ng",
@@ -264,8 +249,6 @@ async function bootstrap() {
         "EduCenter / Schools",
         "School management portal, bulk student enrollment, teacher dashboard",
       )
-
-      // ── Conviction pillar: VillageCircle (villagecircle.ng) ────
       .addTag(
         "VillageCircle / Waitlist",
         "Unified waitlist for all 30 VillageCircle concepts — villagecircle.ng",
@@ -310,8 +293,6 @@ async function bootstrap() {
         "VillageCircle / Concepts",
         "All remaining concept waitlists — PowerAlert, FarmGate, AfroCopy, etc.",
       )
-
-      // ── AI / Automation (cross-cutting) ────────────────────────
       .addTag(
         "AI",
         "OpenAI GPT-4o, Groq, Gemini, fal.ai FLUX — generation, job status, trend feed",
@@ -320,7 +301,6 @@ async function bootstrap() {
         "Automation",
         "n8n workflow triggers, BullMQ job management, campaign scheduling",
       )
-
       .build();
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);
@@ -329,8 +309,8 @@ async function bootstrap() {
         persistAuthorization: true,
         tagsSorter: "alpha",
         operationsSorter: "alpha",
-        docExpansion: "none", // collapsed by default — 32+ tags would be overwhelming open
-        filter: true, // enable tag/operation search box
+        docExpansion: "none",
+        filter: true,
         tryItOutEnabled: NODE_ENV !== "production",
       },
       customSiteTitle: "BoldmindNG API Docs",

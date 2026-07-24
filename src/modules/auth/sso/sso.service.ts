@@ -14,7 +14,6 @@ export const SSO_REFRESH_COOKIE_NAME = "boldmind_refresh";
  * Pillar domains that require relay token SSO.
  * boldmind.ng + *.boldmind.ng subdomains share the cookie domain natively.
  */
-
 export const EXTERNAL_PILLAR_DOMAINS = new Set([
   "amebogist.ng",
   "educenter.com.ng",
@@ -32,7 +31,7 @@ const TRUSTED_ORIGINS = new Set([
 export class SsoService {
   private readonly logger = new Logger(SsoService.name);
   private readonly isProd: boolean;
-  private readonly cookieDomain: string;
+  private readonly cookieDomain: string | undefined;
   private readonly hubUrl: string;
 
   constructor(
@@ -40,9 +39,21 @@ export class SsoService {
     private readonly redis: RedisService,
   ) {
     this.isProd = this.config.get<string>("NODE_ENV") === "production";
-    // .boldmind.ng covers boldmind.ng, planai.boldmind.ng, marketplace.boldmind.ng, etc.
-    this.cookieDomain = this.isProd ? ".boldmind.ng" : "localhost";
+    // FIX: 'localhost' is never a valid Domain attribute for a response
+    // served from api.boldmind.ng — the browser silently drops the entire
+    // Set-Cookie header when Domain doesn't match the request host. That
+    // produced a login that "worked" (access token issued fine) but left
+    // no refresh cookie ever stored, so /auth/refresh always 401'd with
+    // "Refresh token required" the moment NODE_ENV wasn't exactly the
+    // literal string "production". Leaving this undefined lets the browser
+    // default Domain to the exact request host — always valid, in every
+    // environment.
+    this.cookieDomain = this.isProd ? ".boldmind.ng" : undefined;
     this.hubUrl = this.config.get<string>("HUB_URL", "https://boldmind.ng");
+
+    this.logger.log(
+      `SSO cookie config — NODE_ENV="${this.config.get("NODE_ENV")}" isProd=${this.isProd} cookieDomain=${this.cookieDomain ?? "(request host)"}`,
+    );
   }
 
   // ─── Hub .boldmind.ng cookie ──────────────────────────────────────────────
@@ -91,12 +102,6 @@ export class SsoService {
 
   /**
    * exchangeRelayToken — validate + consume relay token (one-time use).
-   *
-   * FIXED: previously called `this.redis.del(key)` and treated the return
-   * value as the stored payload. RedisService.del() returns void (and Redis's
-   * native DEL returns a deleted-key count, never the value) — that made this
-   * method throw on every call. Now does an atomic GET-then-DELETE via Lua,
-   * matching the pattern already used in RedisService.consumeSSOToken().
    */
   async exchangeRelayToken(
     relay: string,
@@ -117,13 +122,6 @@ export class SsoService {
 
   // ─── URL builders ─────────────────────────────────────────────────────────
 
-  /**
-   * buildSsoRelayUrl — creates relay token + returns full destination URL with
-   * relay token + UTM params embedded as query parameters.
-   *
-   * The destination URL must be an external pillar domain.
-   * The relay token is appended as ?relay=TOKEN on the external domain's /sso path.
-   */
   async buildSsoRelayUrl(
     userId: string,
     accessToken: string,
@@ -139,24 +137,17 @@ export class SsoService {
       throw new Error("Invalid destination URL");
     }
 
-    // Point to the external domain's /sso handler
     const ssoUrl = new URL("/sso", url.origin);
     ssoUrl.searchParams.set("relay", relay);
-    // Preserve the original path as return_path
     const returnPath = url.pathname + url.search;
     if (returnPath && returnPath !== "/") {
       ssoUrl.searchParams.set("return_path", url.pathname);
     }
-    // Thread UTM params
     this.applyUTM(ssoUrl, utm);
 
     return ssoUrl.toString();
   }
 
-  /**
-   * appendUTM — utility for same-domain navigation (no relay needed).
-   * Just appends UTM params to a URL string.
-   */
   appendUTM(destination: string, utm: UtmParams): string {
     try {
       const url = new URL(destination);
@@ -172,14 +163,6 @@ export class SsoService {
    * Takes an ALREADY-CREATED relay token and builds the final redirect URL
    * with that token + UTM params. Does NOT create a new relay token itself —
    * call createRelayToken() first, then pass its result here.
-   *
-   * Correct controller usage (e.g. Google OAuth callback):
-   *   const relayToken = await this.ssoService.createRelayToken(user.id, accessToken);
-   *   const relayUrl   = this.ssoService.buildCrossDomainUrl(returnUrl, relayToken, {});
-   *   return res.redirect(relayUrl);
-   *
-   * Do NOT call createRelayToken() a second time with (returnUrl, relayToken) —
-   * that signature mismatch was the bug in the original auth.controller.ts.
    */
   buildCrossDomainUrl(
     destination: string,
@@ -217,9 +200,6 @@ export class SsoService {
    * safeRedirectUrl
    * Returns the url if it belongs to a trusted BoldmindNG domain.
    * Falls back to Hub dashboard to prevent open-redirect vulnerabilities.
-   *
-   * Controller usage:
-   *   return res.redirect(this.ssoService.safeRedirectUrl(returnUrl));
    */
   safeRedirectUrl(url?: string | null): string {
     const fallback = `${this.hubUrl}/dashboard`;
@@ -240,11 +220,6 @@ export class SsoService {
 
   // ─── Product catalog helper ───────────────────────────────────────────────
 
-  /**
-   * getProductForUrl
-   * Resolves the BoldmindNG product record for a given destination URL.
-   * Used for analytics + logging in SSO flows.
-   */
   getProductForUrl(url: string): (typeof BOLDMIND_PRODUCTS)[0] | undefined {
     try {
       const { hostname } = new URL(url);
@@ -271,13 +246,18 @@ export class SsoService {
     return EXTERNAL_PILLAR_DOMAINS.has(hostname.replace(/^www\./, ""));
   }
 
-  // inside SsoService class:
-
   setRefreshCookie(res: Response, refreshToken: string): void {
     res.cookie(SSO_REFRESH_COOKIE_NAME, refreshToken, {
       httpOnly: true,
       secure: this.isProd,
-      sameSite: this.isProd ? "strict" : "lax", // refresh cookie stays same-domain only, unlike boldmind_sso
+      // FIX: was 'strict'. Strict cookies have documented browser edge
+      // cases (dropped across OAuth redirect chains, some Safari
+      // reload/back-forward-cache paths) that reproduce exactly this bug —
+      // present right after login, gone by the time /auth/refresh runs a
+      // few minutes later. 'lax' still never rides along on a cross-site
+      // POST from a genuinely different site, so CSRF exposure is
+      // unchanged; it only fixes the same-site edge cases above.
+      sameSite: "lax",
       domain: this.cookieDomain,
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days — matches REFRESH_TOKEN_EXPIRY_DAYS
       path: "/api/v1/auth", // scope narrowly — this cookie should never leave the auth routes

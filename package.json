@@ -24,7 +24,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1007.0",
     "@boldmindng/analytics": "13.0.0",
     "@boldmindng/deploy-config": "1.1.0",
-    "@boldmindng/email": "7.1.0",
+    "@boldmindng/email": "8.0.0",
     "@boldmindng/sms": "1.1.0",
     "@boldmindng/utils": "10.1.0",
     "@fal-ai/client": "^1.10.0",

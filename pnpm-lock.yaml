@@ -27,8 +27,8 @@ importers:
         specifier: 1.1.0
         version: 1.1.0(react@19.2.0)
       '@boldmindng/email':
-        specifier: 7.1.0
-        version: 7.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+        specifier: 8.0.0
+        version: 8.0.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@boldmindng/sms':
         specifier: 1.1.0
         version: 1.1.0
@@ -424,8 +424,8 @@ packages:
     engines: {node: '>=22.22.3'}
     hasBin: true
 
-  '@boldmindng/email@7.1.0':
-    resolution: {integrity: sha512-xGkrOSB2LULbnYE+jwl0ci3/6B/ziedZlG5gYM1Lkd5nAWYrQ11F0KabLDYpoOMUD+Kfq9v18VhkSs/rBF6x7w==, tarball: https://npm.pkg.github.com/download/@boldmindng/email/7.1.0/f31f3a87f923f9f3e014971d440a5d20cbac39b4}
+  '@boldmindng/email@8.0.0':
+    resolution: {integrity: sha512-aHiGzWyYUgawVzClfm/08FJnPrdTfdBVGENHLhLaaHOl25/mPkJbIcrkjneI4YVXlVZhpuhmJWfbEc7tnT8AVQ==, tarball: https://npm.pkg.github.com/download/@boldmindng/email/8.0.0/93409421477f15ca101c4135d30a1ce23c6d68d3}
     peerDependencies:
       react: 19.2.0
       react-dom: 19.2.0
@@ -4337,7 +4337,7 @@ snapshots:
     transitivePeerDependencies:
       - react
 
-  '@boldmindng/email@7.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+  '@boldmindng/email@8.0.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       '@react-email/render': 2.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       react: 19.2.0
